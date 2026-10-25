@@ -1,3 +1,4 @@
+import { honeytokenForAsset } from './assets';
 import { EventType, Severity, Alert, IntrusionEvent, NodeId } from './types';
 
 export interface ThreatRule {
@@ -79,7 +80,17 @@ export const THREAT_RULES: Record<EventType, ThreatRule> = {
     triggersAlert: true,
     alertTitle: (evt) => `Lateral Movement: ${evt.sourceNodeId} ➔ ${evt.targetNodeId}`,
     generateEvidence: (evt) =>
-      `Suspicious lateral pivot observed from ${evt.sourceNodeId} to ${evt.targetNodeId} utilizing unauthorized session tokens.`,
+      `Simulated lateral move from ${evt.sourceNodeId} to ${evt.targetNodeId} along an allowed network edge.`,
+  },
+  DECOY_DEPLOYED: {
+    type: 'DECOY_DEPLOYED',
+    baseSeverity: 'info',
+    scoreDelta: 0,
+    triggersAlert: false,
+    alertTitle: (evt) => `Decoy staged: ${evt.assetLabel || 'asset'}`,
+    generateEvidence: (evt) =>
+      evt.evidence ||
+      `Adaptive policy staged ${evt.assetLabel || 'a decoy'} on ${evt.targetNodeId}.`,
   },
 };
 
@@ -100,15 +111,7 @@ export function evaluateEventAlert(event: IntrusionEvent): Alert | null {
     title: rule.alertTitle(event),
     nodeId: (event.targetNodeId || event.sourceNodeId || 'gateway') as NodeId,
     assetId: event.assetId,
-    honeytokenId: event.assetId?.includes('payroll')
-      ? 'HT-FIN-PAYROLL-9921'
-      : event.assetId?.includes('token')
-      ? 'HT-VAULT-ROOT-0019'
-      : event.assetId?.includes('sql')
-      ? 'HT-DB-DUMP-7712'
-      : event.assetId?.includes('forecast')
-      ? 'HT-WORK-FCST-3304'
-      : undefined,
+    honeytokenId: event.honeytokenId || honeytokenForAsset(event.assetId),
     evidence: event.evidence || rule.generateEvidence(event),
     description: event.explanation,
   };
@@ -133,27 +136,27 @@ export function getThreatLevel(score: number): {
   if (score >= 75) {
     return {
       level: 'CRITICAL',
-      color: '#ef4444',
+      color: '#F87171',
       badgeClass: 'bg-red-500/10 text-red-400 border-red-500/30',
     };
   }
   if (score >= 40) {
     return {
       level: 'HIGH',
-      color: '#f97316',
+      color: '#FBBF24',
       badgeClass: 'bg-orange-500/10 text-orange-400 border-orange-500/30',
     };
   }
   if (score >= 15) {
     return {
       level: 'ELEVATED',
-      color: '#f59e0b',
+      color: '#FBBF24',
       badgeClass: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
     };
   }
   return {
     level: 'NOMINAL',
-    color: '#10b981',
+      color: '#34D399',
     badgeClass: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
   };
 }

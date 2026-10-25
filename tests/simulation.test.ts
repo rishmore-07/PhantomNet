@@ -146,8 +146,9 @@ describe('PHANTOMNET Simulation Engine', () => {
 
     const path = deriveAttackPath(session);
     expect(path.pathNodes).toEqual(['gateway', 'web', 'finance']);
-    expect(path.traversedEdgeIds.has('e-gateway-web')).toBe(true);
-    expect(path.traversedEdgeIds.has('e-web-finance')).toBe(true);
+    expect(path.traversedEdgeIds.has('e-gw-web')).toBe(true);
+    expect(path.traversedEdgeIds.has('e-web-fin')).toBe(true);
+    expect(path.traversedEdgeIds.has('e-gateway-web')).toBe(false);
     expect(path.traversedEdgeIds.has('e-gateway-finance')).toBe(false);
   });
 });

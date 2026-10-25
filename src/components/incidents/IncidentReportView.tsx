@@ -151,6 +151,91 @@ export const IncidentReportView: React.FC<IncidentReportViewProps> = ({ report }
         )}
       </div>
 
+      <div className="space-y-2">
+        <h4 className="text-xs font-medium text-soc-textDim">Score explanation</h4>
+        <p className="text-[12px] text-soc-textMuted">
+          Score is the sum of recorded event deltas, capped at 100. It is not a probability.
+        </p>
+        {report.scoreBreakdown.length === 0 ? (
+          <p className="text-[12px] text-soc-textDim">No scoring events in this view.</p>
+        ) : (
+          <ul className="font-mono text-[11px] text-soc-textMuted space-y-1">
+            {report.scoreBreakdown.map((row) => (
+              <li key={row.eventType} className="flex justify-between gap-3">
+                <span>
+                  {row.eventType} × {row.count}
+                </span>
+                <span>+{row.subtotal}</span>
+              </li>
+            ))}
+            <li className="flex justify-between text-soc-text">
+              <span>Capped total</span>
+              <span>{report.threatScore}/100</span>
+            </li>
+          </ul>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <h4 className="text-xs font-medium text-soc-textDim">Adaptive decoys</h4>
+        {report.adaptiveDeployments.length === 0 ? (
+          <p className="text-[12px] text-soc-textDim">No adaptive decoy was staged in this view.</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {report.adaptiveDeployments.map((item) => (
+              <li key={item.eventId} className="border border-soc-border rounded-md px-2.5 py-2 text-[12px]">
+                <div className="flex justify-between gap-2">
+                  <span className="font-mono text-soc-cyan">{item.assetLabel}</span>
+                  <span className="font-mono text-soc-textDim">{item.nodeId}</span>
+                </div>
+                <p className="text-soc-textMuted mt-1">{item.reason}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <h4 className="text-xs font-medium text-soc-textDim">ATT&CK mappings</h4>
+        <p className="text-[12px] text-soc-textMuted">{report.scopeNotice}</p>
+        {report.mitreMappings.length === 0 ? (
+          <p className="text-[12px] text-soc-textDim">No technique is mapped for this prefix.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-[11px] font-mono">
+              <thead className="text-soc-textDim">
+                <tr>
+                  <th className="py-1.5 pr-3 font-medium">Tactic</th>
+                  <th className="py-1.5 pr-3 font-medium">Technique</th>
+                  <th className="py-1.5 font-medium">Event</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.mitreMappings.map((row) => (
+                  <tr key={row.eventId} className="border-t border-soc-border align-top">
+                    <td className="py-1.5 pr-3 text-soc-textMuted">
+                      {row.tacticId} {row.tacticName}
+                    </td>
+                    <td className="py-1.5 pr-3 text-soc-cyan">
+                      {row.techniqueId}
+                      <div className="text-soc-textMuted font-sans">{row.detectionExplanation}</div>
+                    </td>
+                    <td className="py-1.5 text-soc-textDim">{row.eventType}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {report.replayView && (
+        <p className="text-[12px] text-soc-amber">
+          Export matches replay event {report.replayView.eventIndex + 1} of {report.replayView.eventsRecorded}.{' '}
+          {report.replayView.note}
+        </p>
+      )}
+
       {/* Remediation Recommendations */}
       <div className="space-y-2">
         <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-soc-textDim">

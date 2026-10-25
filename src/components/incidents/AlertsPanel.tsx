@@ -34,14 +34,14 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = ({ alerts }) => {
             <span>High-Signal Detection Alerts ({alerts.length})</span>
           </h3>
           <p className="text-xs text-soc-textDim">
-            Real-time tripwire detections derived from recorded event telemetry.
+            Alerts derived from the events currently in view. This is not a live sensor feed.
           </p>
         </div>
 
         {/* Severity Filters */}
         <div className="flex items-center gap-1.5 text-xs font-mono">
           <Filter className="w-3.5 h-3.5 text-soc-textDim" />
-          {(['all', 'critical', 'high', 'low'] as const).map((sev) => (
+          {(['all', 'critical', 'high', 'medium', 'low'] as const).map((sev) => (
             <button
               key={sev}
               onClick={() => setFilterSeverity(sev)}

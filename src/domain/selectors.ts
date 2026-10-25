@@ -1,13 +1,20 @@
 import {
+  AdaptiveDeploymentRecord,
   Alert,
   AttackPathStep,
+  DecoyDeploymentRecord,
   IncidentReport,
   NodeId,
   NodeStatus,
+  ScoreComponent,
   SimulationSession,
 } from './types';
 import { calculateThreatScore, evaluateEventAlert, getThreatLevel } from './rules';
 import { INITIAL_DECOYS } from '../data/decoysSeed';
+import { INITIAL_EDGES } from '../data/networkSeed';
+import { findAsset } from './assets';
+import { templateById } from '../data/adaptiveDecoys';
+import { SIMULATION_SCOPE_NOTE, mitreForEvent, unmappedReason } from './mitre';
 
 /**
  * Derives all alerts triggered by the session's recorded events.
@@ -67,9 +74,13 @@ export function deriveAttackPath(session: SimulationSession): {
       // Find edge id matching source and target (undirected)
       const u = event.sourceNodeId;
       const v = event.targetNodeId;
-      traversedEdgeIds.add(`e-${u}-${v}`);
-      traversedEdgeIds.add(`e-${v}-${u}`);
-    } else if (event.targetNodeId) {
+      const edgeId = edgeIdBetween(u, v);
+      if (edgeId) traversedEdgeIds.add(edgeId);
+    } else if (
+      event.type !== 'DECOY_DEPLOYED' &&
+      event.actor !== 'system' &&
+      event.targetNodeId
+    ) {
       visitedNodeIds.add(event.targetNodeId);
     }
   }
@@ -80,6 +91,14 @@ export function deriveAttackPath(session: SimulationSession): {
     steps,
     pathNodes,
   };
+}
+
+function edgeIdBetween(a: NodeId, b: NodeId): string | null {
+  const edge = INITIAL_EDGES.find(
+    (item) =>
+      (item.source === a && item.target === b) || (item.source === b && item.target === a)
+  );
+  return edge ? edge.id : null;
 }
 
 /**
@@ -121,10 +140,68 @@ export function deriveNodeStatuses(
   return statuses;
 }
 
+export function deriveDecoyDeployments(session: SimulationSession): DecoyDeploymentRecord[] {
+  const baseline: DecoyDeploymentRecord[] = INITIAL_DECOYS.map((asset) => ({
+    assetId: asset.id,
+    assetLabel: asset.label,
+    nodeId: asset.nodeId,
+    honeytokenId: asset.honeytokenId,
+    kind: asset.kind,
+    origin: 'baseline',
+    reason: 'Present in the baseline simulated environment.',
+    deployedAt: session.startedAt,
+  }));
+
+  const adaptive: DecoyDeploymentRecord[] = [];
+  for (const event of session.events) {
+    if (event.type !== 'DECOY_DEPLOYED' || !event.assetId || !event.targetNodeId) continue;
+    const template = templateById(event.assetId);
+    adaptive.push({
+      assetId: event.assetId,
+      assetLabel: event.assetLabel || template?.label || event.assetId,
+      nodeId: event.targetNodeId,
+      honeytokenId: event.honeytokenId || template?.honeytokenId || '',
+      kind: template?.kind || 'file',
+      origin: 'adaptive',
+      reason: event.deploymentReason || event.explanation,
+      policyId: event.policyId,
+      deployedAt: event.timestamp,
+      eventId: event.id,
+    });
+  }
+
+  return [...baseline, ...adaptive];
+}
+
+export function deriveScoreBreakdown(session: SimulationSession): ScoreComponent[] {
+  const grouped = new Map<ScoreComponent['eventType'], { count: number; delta: number }>();
+  for (const event of session.events) {
+    if (!event.scoreDelta) continue;
+    const current = grouped.get(event.type) || { count: 0, delta: event.scoreDelta };
+    current.count += 1;
+    current.delta = event.scoreDelta;
+    grouped.set(event.type, current);
+  }
+  return Array.from(grouped.entries()).map(([eventType, value]) => ({
+    eventType,
+    count: value.count,
+    deltaEach: value.delta,
+    subtotal: value.count * value.delta,
+  }));
+}
+
+export interface ReportContext {
+  recordedEventCount?: number;
+  viewingIndex?: number | null;
+}
+
 /**
  * Derives the comprehensive incident report object.
  */
-export function deriveIncidentReport(session: SimulationSession): IncidentReport {
+export function deriveIncidentReport(
+  session: SimulationSession,
+  context?: ReportContext
+): IncidentReport {
   const score = deriveThreatScore(session);
   const alerts = deriveAlerts(session);
   const path = deriveAttackPath(session);
@@ -149,7 +226,7 @@ export function deriveIncidentReport(session: SimulationSession): IncidentReport
         evt.type === 'FAKE_CREDENTIAL_USED')
     ) {
       seenAssets.add(evt.assetId);
-      const asset = INITIAL_DECOYS.find((a) => a.id === evt.assetId);
+      const asset = findAsset(session, evt.assetId);
       if (asset) {
         triggeredDecoys.push({
           assetId: asset.id,
@@ -162,34 +239,45 @@ export function deriveIncidentReport(session: SimulationSession): IncidentReport
     }
   }
 
-  let classification = 'Reconnaissance / Probing';
+  let classification = 'Simulated baseline — no decoy interaction';
   if (score >= 75) {
-    classification = 'CONFIRMED INTRUSION — Decoy Canary Breached (P1 Critical)';
+    classification = 'Simulated critical — decoy interaction recorded';
   } else if (score >= 40) {
-    classification = 'SUSPECTED LATERAL BREACH — Honeytoken Accessed (P2 High)';
+    classification = 'Simulated high — suspicious movement or decoy access';
   } else if (score >= 15) {
-    classification = 'UNAUTHORIZED ACTIVE PROBING — Elevated Threat (P3 Medium)';
+    classification = 'Simulated elevated — probing recorded';
   }
 
-  const recommendations: string[] = [];
-  if (alertCounts.critical > 0) {
+  const adaptiveDeployments: AdaptiveDeploymentRecord[] = deriveDecoyDeployments(session)
+    .filter((item) => item.origin === 'adaptive' && item.policyId && item.eventId)
+    .map((item) => ({
+      assetId: item.assetId,
+      assetLabel: item.assetLabel,
+      nodeId: item.nodeId,
+      honeytokenId: item.honeytokenId,
+      kind: item.kind,
+      policyId: item.policyId as string,
+      reason: item.reason,
+      deployedAt: item.deployedAt,
+      eventId: item.eventId as string,
+    }));
+
+  const recommendations: string[] = [
+    'Treat this dossier as a simulation record. It does not isolate a live host or revoke a real credential.',
+  ];
+  if (alertCounts.critical > 0 || alertCounts.high > 0) {
     recommendations.push(
-      'Immediately isolate targeted host from internal VLAN routing.',
-      'Revoke synthetic credential lineage and verify production identity store integrity.',
-      'Blackhole simulated pivot IP address at perimeter edge.'
+      'Review every touched decoy and the hosts listed in the trajectory before reusing those names in a real environment.',
+      'If this scenario were production telemetry, contain the affected segment and rotate any real secret that shared a name with a touched decoy.'
     );
   }
-  if (alertCounts.high > 0) {
+  if (adaptiveDeployments.length > 0) {
     recommendations.push(
-      'Export canary access logs to enterprise SIEM for forensic correlation.',
-      'Deploy secondary adaptive honeytokens on adjacent subnets.'
+      'Inspect adaptive decoys staged during the session and remove any that were opened.'
     );
   }
-  if (recommendations.length === 0) {
-    recommendations.push(
-      'Continue baseline passive monitoring. No canary tripwires breached.',
-      'Maintain perimeter egress filtering rules.'
-    );
+  if (alertCounts.critical === 0 && alertCounts.high === 0) {
+    recommendations.push('No decoy interaction is recorded. Baseline assets remain unopened.');
   }
 
   const firstEventTime = session.events[0]?.timestamp || session.startedAt;
@@ -202,14 +290,27 @@ export function deriveIncidentReport(session: SimulationSession): IncidentReport
     )
   );
 
+  const mitreMappings = session.events
+    .map((event) => mitreForEvent(event))
+    .filter((item): item is NonNullable<typeof item> => item !== null);
+  const unmappedEvents = session.events
+    .filter((event) => !mitreForEvent(event))
+    .map((event) => unmappedReason(event));
+
+  const recorded = context?.recordedEventCount ?? session.events.length;
+  const viewingPartial =
+    context?.viewingIndex !== undefined &&
+    context.viewingIndex !== null &&
+    session.events.length < recorded;
+
   return {
     sessionId: session.id,
-    generatedAt: new Date().toISOString(),
+    generatedAt: lastEventTime,
     startedAt: session.startedAt,
     durationSeconds,
     threatScore: score,
     classification,
-    summary: `Simulated intrusion session '${session.id}' recorded ${session.events.length} telemetry events across ${path.visitedNodeIds.size} network hosts. Attacker triggered ${alerts.length} high-signal deception alerts resulting in threat score ${score}/100.`,
+    summary: `Simulated session '${session.id}' includes ${session.events.length} recorded events across ${path.visitedNodeIds.size} hosts. ${alerts.length} alerts were derived from those events. Threat score ${score}/100. ${SIMULATION_SCOPE_NOTE}`,
     currentNode: session.currentNodeId,
     totalEvents: session.events.length,
     alertCounts,
@@ -220,5 +321,18 @@ export function deriveIncidentReport(session: SimulationSession): IncidentReport
     ),
     alerts,
     recommendations,
+    scopeNotice: SIMULATION_SCOPE_NOTE,
+    scoreBreakdown: deriveScoreBreakdown(session),
+    mitreMappings,
+    unmappedEvents,
+    adaptiveDeployments,
+    replayView: viewingPartial
+      ? {
+          eventIndex: context?.viewingIndex ?? session.events.length - 1,
+          eventsIncluded: session.events.length,
+          eventsRecorded: recorded,
+          note: 'This export matches the replay cursor. It is a prefix of the recorded event log, not a separate dataset.',
+        }
+      : null,
   };
 }

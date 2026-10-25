@@ -11,7 +11,7 @@ export const INITIAL_NODES: NetworkNodeDef[] = [
     tags: ['Ingress', 'Reverse-Proxy', 'Edge'],
     os: 'Linux Alpine 3.19 (Hardened)',
     services: ['HTTPS (443)', 'SSH (22 - Restricted)', 'BGP (179)'],
-    position: { x: 80, y: 160 },
+    position: { x: 24, y: 150 },
   },
   {
     id: 'web',
@@ -23,7 +23,7 @@ export const INITIAL_NODES: NetworkNodeDef[] = [
     tags: ['App', 'DMZ', 'Public-Facing'],
     os: 'Ubuntu 24.04 LTS',
     services: ['Nginx 1.25', 'Node.js runtime', 'Decoy Route /admin'],
-    position: { x: 340, y: 60 },
+    position: { x: 250, y: 24 },
   },
   {
     id: 'workstation',
@@ -35,7 +35,7 @@ export const INITIAL_NODES: NetworkNodeDef[] = [
     tags: ['Endpoint', 'Corp-LAN', 'User-Session'],
     os: 'macOS Sonoma 14.4 (Simulated)',
     services: ['MDM Agent', 'EDR Sensor', 'Local SSH Agent'],
-    position: { x: 340, y: 280 },
+    position: { x: 250, y: 230 },
   },
   {
     id: 'finance',
@@ -47,7 +47,7 @@ export const INITIAL_NODES: NetworkNodeDef[] = [
     tags: ['PCI-DSS', 'High-Value', 'Internal'],
     os: 'RHEL 9.3',
     services: ['SMB / CIFS (445)', 'NFS (2049)', 'Audit Daemon'],
-    position: { x: 620, y: 60 },
+    position: { x: 480, y: 24 },
   },
   {
     id: 'database',
@@ -59,7 +59,7 @@ export const INITIAL_NODES: NetworkNodeDef[] = [
     tags: ['Storage', 'PostgreSQL', 'Encrypted-At-Rest'],
     os: 'Debian 12 Bookworm',
     services: ['PostgreSQL 16 (5432)', 'pg_stat_monitor', 'Local Backup Agent'],
-    position: { x: 620, y: 280 },
+    position: { x: 480, y: 230 },
   },
   {
     id: 'decoy-vault',
@@ -71,7 +71,12 @@ export const INITIAL_NODES: NetworkNodeDef[] = [
     tags: ['HONEYPOT', 'TRAP-NODE', 'HIGH-INTERACTION'],
     os: 'Simulated Deception Kernel v4.2',
     services: ['Simulated Telnet (23)', 'Fake Hashicorp Vault (8200)', 'HoneyToken Emitter'],
-    position: { x: 890, y: 170 },
+    coverLabel: 'Cold Archive',
+    coverRole: 'Backup Storage',
+    coverDescription: 'Secondary archive for database snapshots and file restores.',
+    coverOs: 'Debian 12 Bookworm',
+    coverServices: ['SSH (22)', 'NFS (2049)', 'Backup Agent'],
+    position: { x: 710, y: 128 },
   },
 ];
 

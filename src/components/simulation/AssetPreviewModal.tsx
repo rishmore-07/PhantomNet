@@ -10,6 +10,7 @@ import {
 import { DecoyAsset, NodeId } from '../../domain/types';
 import { INITIAL_NODES } from '../../data/networkSeed';
 import { Perspective } from '../../hooks/useSimulationStore';
+import { presentMetadata, presentPreview } from '../../domain/presentation';
 
 interface AssetPreviewModalProps {
   asset: DecoyAsset | null;
@@ -86,7 +87,7 @@ export const AssetPreviewModal: React.FC<AssetPreviewModalProps> = ({
               File Payload / Preview:
             </span>
             <pre className="bg-slate-950 p-4 rounded-lg border border-soc-border text-slate-200 overflow-x-auto text-[11px] leading-relaxed whitespace-pre-wrap select-text">
-              {asset.preview}
+              {presentPreview(asset.preview, perspective)}
             </pre>
           </div>
 
@@ -97,7 +98,7 @@ export const AssetPreviewModal: React.FC<AssetPreviewModalProps> = ({
                 Asset Metadata:
               </span>
               <div className="grid grid-cols-2 gap-2 bg-slate-900/60 p-3 rounded-lg border border-soc-border text-[11px]">
-                {Object.entries(asset.metadata).map(([key, val]) => (
+                {presentMetadata(asset.metadata, perspective).map(([key, val]) => (
                   <div key={key}>
                     <span className="text-soc-textDim capitalize">{key}: </span>
                     <span className="text-slate-200">{val}</span>
@@ -133,7 +134,7 @@ export const AssetPreviewModal: React.FC<AssetPreviewModalProps> = ({
                 className="px-4 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-mono text-xs font-bold transition-all shadow-md flex items-center gap-1.5"
               >
                 <AlertTriangle className="w-3.5 h-3.5" />
-                <span>Trigger Honeypot Touch</span>
+                <span>{perspective === 'defender' ? 'Record interaction' : 'Open file'}</span>
               </button>
             ) : null}
           </div>

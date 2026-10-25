@@ -3,24 +3,78 @@
 @tailwind utilities;
 
 @layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
   body {
-    background-color: #080c14;
+    background-color: #090d14;
     color: #f1f5f9;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+
+  button,
+  a,
+  input,
+  select {
+    @apply focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-soc-cyan;
   }
 }
 
-/* Custom scrollbar for sleek SOC feel */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
+
 ::-webkit-scrollbar-track {
-  background: #0d1322;
+  background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
-  border-radius: 3px;
+  background: #263244;
+  border-radius: 99px;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+
+.react-flow__controls {
+  border: 1px solid #263244 !important;
+  border-radius: 8px !important;
+  overflow: hidden;
+  box-shadow: none !important;
+}
+
+.react-flow__controls-button {
+  background: #111824 !important;
+  border-bottom: 1px solid #263244 !important;
+  fill: #94a3b8 !important;
+  width: 22px !important;
+  height: 22px !important;
+}
+
+.react-flow__controls-button:hover {
+  background: #172131 !important;
+}
+
+.react-flow__attribution {
+  display: none;
+}
+
+.react-flow__edge-text {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .react-flow__edge-path {
+    animation: none !important;
+  }
 }

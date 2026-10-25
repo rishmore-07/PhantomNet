@@ -8,11 +8,13 @@ import {
   FolderOpen,
   KeyRound,
   AlertOctagon,
+  Radar,
 } from 'lucide-react';
 import { IntrusionEvent, EventType } from '../../domain/types';
 
 interface TimelineViewProps {
   events: IntrusionEvent[];
+  activeEventId?: string;
 }
 
 const eventTypeIcons: Record<EventType, React.FC<{ className?: string }>> = {
@@ -24,9 +26,10 @@ const eventTypeIcons: Record<EventType, React.FC<{ className?: string }>> = {
   HONEYTOKEN_VIEWED: Flame,
   FAKE_CREDENTIAL_USED: AlertOctagon,
   LATERAL_MOVE_ATTEMPT: ArrowRight,
+  DECOY_DEPLOYED: Radar,
 };
 
-export const TimelineView: React.FC<TimelineViewProps> = ({ events }) => {
+export const TimelineView: React.FC<TimelineViewProps> = ({ events, activeEventId }) => {
   // Ordered chronologically
   const chronologicalEvents = [...events].sort(
     (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
@@ -69,8 +72,10 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ events }) => {
 
               {/* Event Card */}
               <div
-                className={`p-3 rounded-lg border text-xs space-y-1.5 transition-all ${
-                  isCritical
+                className={`p-3 rounded-lg border text-xs space-y-1.5 transition-colors duration-200 ${
+                  activeEventId === event.id
+                    ? 'border-soc-cyan bg-soc-elevated'
+                    : isCritical
                     ? 'bg-red-950/20 border-red-500/30'
                     : isHigh
                     ? 'bg-amber-950/10 border-amber-500/30'
@@ -112,10 +117,11 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ events }) => {
                     <span>Host:</span>
                     <span className="font-bold">{event.targetNodeId || event.sourceNodeId}</span>
                     {event.type === 'LATERAL_MOVE_ATTEMPT' && (
-                      <span className="text-purple-400">
-                        ({event.sourceNodeId} ➔ {event.targetNodeId})
+                      <span className="text-soc-textMuted">
+                        ({event.sourceNodeId} → {event.targetNodeId})
                       </span>
                     )}
+                    {event.policyId && <span className="text-soc-cyan">{event.policyId}</span>}
                   </div>
 
                   {event.scoreDelta > 0 && (

@@ -6,7 +6,9 @@ import {
 } from './types';
 import { THREAT_RULES } from './rules';
 import { getAllowedTransitions } from '../data/networkSeed';
-import { INITIAL_DECOYS } from '../data/decoysSeed';
+import { findAsset, isAdaptiveAssetId } from './assets';
+import { planAdaptiveDeployments } from './adaptive';
+import { templateById } from '../data/adaptiveDecoys';
 
 export interface PerformActionParams {
   type: EventType;
@@ -80,20 +82,38 @@ export function validateAction(
     }
   }
 
-  // 2. Asset interaction validation: Attacker must be on the node that hosts the asset
+  if (params.type === 'DECOY_DEPLOYED') {
+    return {
+      valid: false,
+      reason: 'Decoy deployment is issued only by the deception policy engine.',
+    };
+  }
+
+  // Asset interaction: the asset must exist in the visible environment and
+  // the simulated session must already be on the host that holds it.
   if (
-    params.type === 'SENSITIVE_FILE_OPENED' ||
-    params.type === 'HONEYTOKEN_VIEWED' ||
-    params.type === 'BROWSE_DIRECTORY'
+    params.assetId &&
+    (params.type === 'SENSITIVE_FILE_OPENED' ||
+      params.type === 'HONEYTOKEN_VIEWED' ||
+      params.type === 'BROWSE_DIRECTORY' ||
+      params.type === 'LOGIN_FAILED' ||
+      params.type === 'FAKE_CREDENTIAL_USED')
   ) {
-    if (params.assetId) {
-      const asset = INITIAL_DECOYS.find((a) => a.id === params.assetId);
-      if (asset && asset.nodeId !== currentNodeId) {
-        return {
-          valid: false,
-          reason: `Cannot interact with asset '${asset.label}' located on '${asset.nodeId}' while current compromise is on '${currentNodeId}'. Move to '${asset.nodeId}' first.`,
-        };
-      }
+    const asset = findAsset(session, params.assetId);
+    if (!asset) {
+      const pending = isAdaptiveAssetId(params.assetId) ? templateById(params.assetId) : undefined;
+      return {
+        valid: false,
+        reason: pending
+          ? `Asset '${pending.label}' is not present on this host.`
+          : `Unknown asset '${params.assetId}'.`,
+      };
+    }
+    if (asset.nodeId !== currentNodeId) {
+      return {
+        valid: false,
+        reason: `Cannot interact with asset '${asset.label}' located on '${asset.nodeId}' while current compromise is on '${currentNodeId}'. Move to '${asset.nodeId}' first.`,
+      };
     }
   }
 
@@ -122,10 +142,12 @@ export function appendSimulationEvent(
   const targetNode = params.targetNodeId || session.currentNodeId;
 
   let assetLabel: string | undefined;
+  let honeytokenId: string | undefined;
   if (params.assetId) {
-    const asset = INITIAL_DECOYS.find((a) => a.id === params.assetId);
+    const asset = findAsset(session, params.assetId);
     if (asset) {
       assetLabel = asset.label;
+      honeytokenId = asset.honeytokenId;
     }
   }
 
@@ -146,21 +168,22 @@ export function appendSimulationEvent(
     assetLabel,
     severity: rule.baseSeverity,
     scoreDelta: rule.scoreDelta,
+    honeytokenId,
     explanation:
       params.customExplanation ||
       (params.type === 'LATERAL_MOVE_ATTEMPT'
-        ? `Attacker successfully pivoted lateral boundary from ${sourceNode} to ${targetNode}.`
+        ? `Simulated move from ${sourceNode} to ${targetNode}.`
         : params.type === 'SENSITIVE_FILE_OPENED'
-        ? `Decoy sensitive file '${assetLabel || 'canary'}' opened on ${targetNode}.`
+        ? `File '${assetLabel || 'document'}' opened on ${targetNode}.`
         : params.type === 'HONEYTOKEN_VIEWED'
-        ? `Synthetic honeytoken credential '${assetLabel || 'secret'}' inspected on ${targetNode}.`
+        ? `Credential file '${assetLabel || 'secret'}' read on ${targetNode}.`
         : params.type === 'FAKE_CREDENTIAL_USED'
-        ? `Synthetic decoy credential deployed for authentication against ${targetNode}.`
+        ? `Synthetic credential presented to ${targetNode}.`
         : params.type === 'LOGIN_FAILED'
-        ? `Brute force authentication probe failed on ${targetNode} monitored portal.`
+        ? `Simulated login rejected on ${targetNode}.`
         : params.type === 'SCAN_HOST'
-        ? `Reconnaissance port scan executed on ${targetNode}.`
-        : `Directory listing enumeration executed on ${targetNode}.`),
+        ? `Simulated port scan of ${targetNode}.`
+        : `Directory listing on ${targetNode}.`),
     evidence: rule.generateEvidence({
       sourceNodeId: sourceNode,
       targetNodeId: targetNode,
@@ -169,10 +192,35 @@ export function appendSimulationEvent(
     }),
   };
 
+  const events = [...session.events, newEvent];
+  const decisions = planAdaptiveDeployments(events);
+  const triggerTime = new Date(newEvent.timestamp).getTime();
+  decisions.forEach((decision, index) => {
+    const template = templateById(decision.assetId);
+    events.push({
+      id: generateEventId(),
+      sessionId: session.id,
+      timestamp: new Date(triggerTime + index + 1).toISOString(),
+      type: 'DECOY_DEPLOYED',
+      actor: 'system',
+      sourceNodeId: nextCurrentNode,
+      targetNodeId: decision.nodeId,
+      assetId: decision.assetId,
+      assetLabel: decision.assetLabel,
+      honeytokenId: template?.honeytokenId,
+      policyId: decision.policyId,
+      deploymentReason: decision.reason,
+      severity: 'info',
+      scoreDelta: 0,
+      explanation: decision.reason,
+      evidence: `Policy ${decision.policyId} staged ${decision.assetLabel} on ${decision.nodeId} after ${newEvent.type}. Simulated deployment only.`,
+    });
+  });
+
   const updatedSession: SimulationSession = {
     ...session,
     currentNodeId: nextCurrentNode,
-    events: [...session.events, newEvent],
+    events,
   };
 
   return {

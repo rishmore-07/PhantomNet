@@ -1,9 +1,5 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import {
-  DecoyAsset,
-  NodeId,
-  SimulationSession,
-} from '../domain/types';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { DecoyAsset, NodeId, SimulationSession } from '../domain/types';
 import {
   createInitialSession,
   appendSimulationEvent,
@@ -16,223 +12,194 @@ import {
   deriveAttackPath,
   deriveNodeStatuses,
   deriveIncidentReport,
+  deriveDecoyDeployments,
 } from '../domain/selectors';
-import { INITIAL_DECOYS } from '../data/decoysSeed';
-
-const STORAGE_KEY = 'phantomnet_session_v1';
+import { assetsOnNode } from '../domain/assets';
+import { runGoldenScenario } from '../domain/demoScript';
+import { LEGACY_STORAGE_KEY, STORAGE_KEY, sanitizeSession } from '../domain/persistence';
+import { projectSessionAt } from '../domain/replay';
 
 export type Perspective = 'defender' | 'attacker';
-export type ActiveTab = 'overview' | 'network' | 'simulator' | 'incidents';
+export type ActiveTab = 'overview' | 'network' | 'simulator' | 'intel' | 'incidents' | 'reports';
+
+export interface ReplayState {
+  active: boolean;
+  index: number;
+  playing: boolean;
+}
+
+const REPLAY_MS = 800;
+
+function loadSession(): SimulationSession {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (saved) {
+      const sanitized = sanitizeSession(JSON.parse(saved));
+      if (sanitized) return sanitized;
+    }
+  } catch (error) {
+    console.warn('Could not restore session from localStorage:', error);
+  }
+  return createInitialSession();
+}
 
 export function useSimulationStore() {
-  const [session, setSession] = useState<SimulationSession>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.events && Array.isArray(parsed.events)) {
-          return parsed;
-        }
-      }
-    } catch (e) {
-      console.warn('Could not restore session from localStorage:', e);
-    }
-    return createInitialSession();
-  });
-
+  const [session, setSession] = useState<SimulationSession>(loadSession);
   const [selectedNodeId, setSelectedNodeId] = useState<NodeId | null>('gateway');
   const [activeTab, setActiveTab] = useState<ActiveTab>('overview');
   const [perspective, setPerspective] = useState<Perspective>('defender');
   const [activeAssetPreview, setActiveAssetPreview] = useState<DecoyAsset | null>(null);
-  const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
-  const [isScriptedRunning, setIsScriptedRunning] = useState(false);
-  const [scriptedStep, setScriptedStep] = useState(0);
+  const [statusMessage, setStatusMessage] = useState<{
+    text: string;
+    type: 'success' | 'error' | 'info';
+  } | null>(null);
+  const [replay, setReplay] = useState<ReplayState>({ active: false, index: 0, playing: false });
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
-  // Sync session to localStorage
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
-    } catch (e) {
-      console.warn('Failed to save session to localStorage:', e);
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+    } catch (error) {
+      console.warn('Failed to save session to localStorage:', error);
     }
   }, [session]);
 
-  // Derived state memoization (computed only when session updates)
-  const alerts = useMemo(() => deriveAlerts(session), [session]);
-  const threatScore = useMemo(() => deriveThreatScore(session), [session]);
-  const threatLevel = useMemo(() => deriveThreatLevel(session), [session]);
-  const attackPath = useMemo(() => deriveAttackPath(session), [session]);
-  const nodeStatuses = useMemo(() => deriveNodeStatuses(session), [session]);
-  const incidentReport = useMemo(() => deriveIncidentReport(session), [session]);
+  const viewSession = useMemo(
+    () => (replay.active ? projectSessionAt(session, replay.index) : session),
+    [session, replay.active, replay.index]
+  );
+
+  const alerts = useMemo(() => deriveAlerts(viewSession), [viewSession]);
+  const threatScore = useMemo(() => deriveThreatScore(viewSession), [viewSession]);
+  const threatLevel = useMemo(() => deriveThreatLevel(viewSession), [viewSession]);
+  const attackPath = useMemo(() => deriveAttackPath(viewSession), [viewSession]);
+  const nodeStatuses = useMemo(() => deriveNodeStatuses(viewSession), [viewSession]);
+  const deployments = useMemo(() => deriveDecoyDeployments(viewSession), [viewSession]);
+  const incidentReport = useMemo(
+    () =>
+      deriveIncidentReport(viewSession, {
+        recordedEventCount: session.events.length,
+        viewingIndex: replay.active ? replay.index : null,
+      }),
+    [viewSession, session.events.length, replay.active, replay.index]
+  );
 
   const showNotification = useCallback((text: string, type: 'success' | 'error' | 'info') => {
     setStatusMessage({ text, type });
-    setTimeout(() => {
-      setStatusMessage((curr) => (curr?.text === text ? null : curr));
-    }, 4500);
+    window.setTimeout(() => {
+      setStatusMessage((current) => (current?.text === text ? null : current));
+    }, 4200);
   }, []);
 
-  const performAction = useCallback((params: PerformActionParams) => {
-    let resultOutcome: { success: boolean; message: string } | null = null;
-    setSession((currSession) => {
-      const result = appendSimulationEvent(currSession, params);
-      resultOutcome = { success: result.success, message: result.message };
-      return result.updatedSession;
-    });
-
-    if (resultOutcome) {
-      const { success, message } = resultOutcome;
-      showNotification(message, success ? 'success' : 'error');
-      return success;
-    }
-    return false;
-  }, [showNotification]);
+  const performAction = useCallback(
+    (params: PerformActionParams) => {
+      if (replay.active) {
+        showNotification('Playback is active. Return to the live session before recording a new action.', 'info');
+        return false;
+      }
+      let outcome: { success: boolean; message: string } | null = null;
+      setSession((current) => {
+        const result = appendSimulationEvent(current, params);
+        outcome = { success: result.success, message: result.message };
+        return result.updatedSession;
+      });
+      if (outcome) {
+        const { success, message } = outcome;
+        showNotification(message, success ? 'success' : 'error');
+        return success;
+      }
+      return false;
+    },
+    [replay.active, showNotification]
+  );
 
   const resetSimulation = useCallback(() => {
-    const newSession = createInitialSession();
-    setSession(newSession);
+    setSession(createInitialSession());
     setSelectedNodeId('gateway');
     setActiveAssetPreview(null);
-    setIsScriptedRunning(false);
-    setScriptedStep(0);
+    setReplay({ active: false, index: 0, playing: false });
     localStorage.removeItem(STORAGE_KEY);
-    showNotification('Simulation session fully reset to baseline state.', 'info');
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+    showNotification('Simulation reset. A new session is ready.', 'info');
   }, [showNotification]);
 
-  // Scripted Demo Runner: Step-by-step golden scenario
-  const timeoutRefs = useRef<NodeJS.Timeout[]>([]);
+  const returnToLive = useCallback(() => {
+    setReplay({ active: false, index: Math.max(0, session.events.length - 1), playing: false });
+  }, [session.events.length]);
 
-  const stopScriptedDemo = useCallback(() => {
-    timeoutRefs.current.forEach((t) => clearTimeout(t));
-    timeoutRefs.current = [];
-    setIsScriptedRunning(false);
+  const scrub = useCallback(
+    (index: number) => {
+      const last = Math.max(0, session.events.length - 1);
+      const next = Math.max(0, Math.min(index, last));
+      setReplay({ active: true, index: next, playing: false });
+    },
+    [session.events.length]
+  );
+
+  const step = useCallback(
+    (direction: -1 | 1) => {
+      setReplay((current) => {
+        const last = Math.max(0, session.events.length - 1);
+        const base = current.active ? current.index : last;
+        const next = Math.max(0, Math.min(base + direction, last));
+        return { active: true, index: next, playing: false };
+      });
+    },
+    [session.events.length]
+  );
+
+  const togglePlay = useCallback(() => {
+    setReplay((current) => {
+      const last = Math.max(0, session.events.length - 1);
+      if (current.playing) return { ...current, playing: false };
+      if (!current.active || current.index >= last) {
+        return { active: true, index: 0, playing: last > 0 };
+      }
+      return { ...current, active: true, playing: true };
+    });
+  }, [session.events.length]);
+
+  const resetReplay = useCallback(() => {
+    setReplay({ active: true, index: 0, playing: false });
+    setSelectedNodeId('gateway');
   }, []);
 
   const runScriptedDemo = useCallback(() => {
-    stopScriptedDemo();
-    // Reset to clean state first
-    const freshSession = createInitialSession();
-    setSession(freshSession);
+    const recorded = runGoldenScenario();
+    setSession(recorded);
     setSelectedNodeId('gateway');
-    setIsScriptedRunning(true);
-    setScriptedStep(1);
+    setActiveAssetPreview(null);
+    setPerspective('defender');
+    setActiveTab('overview');
+    setReplay({ active: true, index: 0, playing: true });
+    showNotification('Demonstration recorded. Playback is using that event log.', 'success');
+  }, [showNotification]);
 
-    const scriptSteps: Array<{
-      delay: number;
-      action: PerformActionParams;
-      focusNode: NodeId;
-      stepNum: number;
-      assetPreviewId?: string;
-    }> = [
-      // Step 1: Scan Gateway
-      {
-        delay: 500,
-        action: { type: 'SCAN_HOST', targetNodeId: 'gateway' },
-        focusNode: 'gateway',
-        stepNum: 1,
-      },
-      // Step 2: Lateral pivot to Web Server
-      {
-        delay: 1800,
-        action: { type: 'LATERAL_MOVE_ATTEMPT', targetNodeId: 'web' },
-        focusNode: 'web',
-        stepNum: 2,
-      },
-      // Step 3: Browse Web Server directory
-      {
-        delay: 3100,
-        action: { type: 'BROWSE_DIRECTORY', targetNodeId: 'web' },
-        focusNode: 'web',
-        stepNum: 3,
-      },
-      // Step 4: Lateral pivot to Finance Server
-      {
-        delay: 4400,
-        action: { type: 'LATERAL_MOVE_ATTEMPT', targetNodeId: 'finance' },
-        focusNode: 'finance',
-        stepNum: 4,
-      },
-      // Step 5: Open decoy payroll_Q3_2026.xlsx on Finance Server
-      {
-        delay: 5800,
-        action: {
-          type: 'SENSITIVE_FILE_OPENED',
-          targetNodeId: 'finance',
-          assetId: 'asset-payroll-file',
-        },
-        focusNode: 'finance',
-        stepNum: 5,
-        assetPreviewId: 'asset-payroll-file',
-      },
-      // Step 6: Pivot to Decoy Vault & inspect fake root credential
-      {
-        delay: 7400,
-        action: { type: 'LATERAL_MOVE_ATTEMPT', targetNodeId: 'decoy-vault' },
-        focusNode: 'decoy-vault',
-        stepNum: 6,
-      },
-      {
-        delay: 8800,
-        action: {
-          type: 'HONEYTOKEN_VIEWED',
-          targetNodeId: 'decoy-vault',
-          assetId: 'asset-admin-token',
-        },
-        focusNode: 'decoy-vault',
-        stepNum: 7,
-        assetPreviewId: 'asset-admin-token',
-      },
-      // Step 7: Pivot to Database & attempt synthetic credential replay
-      {
-        delay: 10400,
-        action: { type: 'LATERAL_MOVE_ATTEMPT', targetNodeId: 'database' },
-        focusNode: 'database',
-        stepNum: 8,
-      },
-      {
-        delay: 11900,
-        action: {
-          type: 'FAKE_CREDENTIAL_USED',
-          targetNodeId: 'database',
-          customExplanation: 'Attacker attempted root database authentication replay using captured canary credentials.',
-        },
-        focusNode: 'database',
-        stepNum: 9,
-      },
-    ];
-
-    scriptSteps.forEach((step, idx) => {
-      const t = setTimeout(() => {
-        setSession((prev) => {
-          const res = appendSimulationEvent(prev, step.action);
-          return res.updatedSession;
-        });
-        setSelectedNodeId(step.focusNode);
-        setScriptedStep(step.stepNum);
-
-        if (step.assetPreviewId) {
-          const decoy = INITIAL_DECOYS.find((d) => d.id === step.assetPreviewId);
-          if (decoy) setActiveAssetPreview(decoy);
-        }
-
-        if (idx === scriptSteps.length - 1) {
-          setIsScriptedRunning(false);
-          showNotification('Demo attack script completed. Full incident report compiled.', 'success');
-        }
-      }, step.delay);
-      timeoutRefs.current.push(t);
-    });
-  }, [stopScriptedDemo, showNotification]);
-
-  // Clean up timeouts on unmount
   useEffect(() => {
-    return () => {
-      timeoutRefs.current.forEach((t) => clearTimeout(t));
-    };
-  }, []);
+    if (!replay.playing) return;
+    const timer = window.setInterval(() => {
+      setReplay((current) => {
+        if (!current.playing) return current;
+        const last = session.events.length - 1;
+        if (current.index >= last) return { ...current, playing: false };
+        return { ...current, index: current.index + 1 };
+      });
+    }, REPLAY_MS);
+    return () => window.clearInterval(timer);
+  }, [replay.playing, session.events.length]);
+
+  useEffect(() => {
+    if (!replay.active) return;
+    const event = session.events[replay.index];
+    if (event?.targetNodeId) setSelectedNodeId(event.targetNodeId);
+  }, [replay.active, replay.index, session.events]);
+
+  const cursorEvent = replay.active ? session.events[replay.index] : session.events[session.events.length - 1];
 
   return {
-    session,
+    session: viewSession,
+    recordedEventCount: session.events.length,
     selectedNodeId,
     setSelectedNodeId,
     activeTab,
@@ -242,17 +209,27 @@ export function useSimulationStore() {
     activeAssetPreview,
     setActiveAssetPreview,
     statusMessage,
-    isScriptedRunning,
-    scriptedStep,
+    dismissStatus: () => setStatusMessage(null),
+    replay,
+    actionsLocked: replay.active,
+    cursorEvent,
     alerts,
     threatScore,
     threatLevel,
     attackPath,
     nodeStatuses,
+    deployments,
     incidentReport,
+    visibleAssets: assetsOnNode(viewSession, viewSession.currentNodeId),
     performAction,
     resetSimulation,
     runScriptedDemo,
-    stopScriptedDemo,
+    togglePlay,
+    step,
+    scrub,
+    resetReplay,
+    returnToLive,
+    settingsOpen,
+    setSettingsOpen,
   };
 }

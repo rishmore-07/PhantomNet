@@ -32,6 +32,12 @@ export interface NetworkNodeDef {
   os: string;
   services: string[];
   position: { x: number; y: number };
+  /** Attacker-facing label when the true role would reveal a decoy host. */
+  coverLabel?: string;
+  coverRole?: string;
+  coverDescription?: string;
+  coverOs?: string;
+  coverServices?: string[];
 }
 
 export interface NetworkEdgeDef {
@@ -50,7 +56,8 @@ export type EventType =
   | 'SENSITIVE_FILE_OPENED'
   | 'HONEYTOKEN_VIEWED'
   | 'FAKE_CREDENTIAL_USED'
-  | 'LATERAL_MOVE_ATTEMPT';
+  | 'LATERAL_MOVE_ATTEMPT'
+  | 'DECOY_DEPLOYED';
 
 export type Severity = 'info' | 'low' | 'medium' | 'high' | 'critical';
 
@@ -68,6 +75,10 @@ export interface IntrusionEvent {
   scoreDelta: number;
   explanation: string;
   evidence?: string;
+  honeytokenId?: string;
+  /** Set only on DECOY_DEPLOYED events emitted by the policy engine. */
+  policyId?: string;
+  deploymentReason?: string;
 }
 
 export interface Alert {
@@ -126,4 +137,66 @@ export interface IncidentReport {
   timeline: IntrusionEvent[];
   alerts: Alert[];
   recommendations: string[];
+  scopeNotice: string;
+  scoreBreakdown: ScoreComponent[];
+  mitreMappings: MitreMappingRecord[];
+  unmappedEvents: UnmappedEventRecord[];
+  adaptiveDeployments: AdaptiveDeploymentRecord[];
+  /** Null when the report covers the full recorded session. */
+  replayView: {
+    eventIndex: number;
+    eventsIncluded: number;
+    eventsRecorded: number;
+    note: string;
+  } | null;
+}
+
+export interface ScoreComponent {
+  eventType: EventType;
+  count: number;
+  deltaEach: number;
+  subtotal: number;
+}
+
+export interface MitreMappingRecord {
+  eventId: string;
+  eventType: EventType;
+  timestamp: string;
+  tacticId: string;
+  tacticName: string;
+  techniqueId: string;
+  techniqueName: string;
+  evidence: string;
+  detectionExplanation: string;
+}
+
+export interface UnmappedEventRecord {
+  eventId: string;
+  eventType: EventType;
+  reason: string;
+}
+
+export interface AdaptiveDeploymentRecord {
+  assetId: string;
+  assetLabel: string;
+  nodeId: NodeId;
+  honeytokenId: string;
+  kind: AssetKind;
+  policyId: string;
+  reason: string;
+  deployedAt: string;
+  eventId: string;
+}
+
+export interface DecoyDeploymentRecord {
+  assetId: string;
+  assetLabel: string;
+  nodeId: NodeId;
+  honeytokenId: string;
+  kind: AssetKind;
+  origin: 'baseline' | 'adaptive';
+  reason: string;
+  policyId?: string;
+  deployedAt: string;
+  eventId?: string;
 }
