@@ -44,7 +44,7 @@ export const IncidentReportView: React.FC<IncidentReportViewProps> = ({ report }
         <div>
           <div className="flex items-center gap-2">
             <span className="px-2.5 py-1 rounded bg-soc-cyan/10 border border-soc-cyan/30 text-soc-cyan font-mono text-xs font-bold uppercase">
-              Forensic Incident Dossier
+              Simulated incident record
             </span>
             <span className="font-mono text-xs text-soc-textDim">
               Ref: {report.sessionId}
@@ -90,7 +90,7 @@ export const IncidentReportView: React.FC<IncidentReportViewProps> = ({ report }
       {/* Traversal Trajectory Strip */}
       <div className="space-y-2">
         <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-soc-textDim">
-          Reconstructed Intrusion Trajectory ({report.attackTrajectory.length} hops)
+          Simulated session path ({report.attackTrajectory.length} locations)
         </h4>
         <div className="flex items-center gap-2 overflow-x-auto py-2 px-3 bg-slate-950 rounded-lg border border-soc-border no-scrollbar font-mono text-xs">
           {report.attackTrajectory.map((node, i) => (
@@ -110,12 +110,12 @@ export const IncidentReportView: React.FC<IncidentReportViewProps> = ({ report }
       {/* Breached Honeytokens Table */}
       <div className="space-y-2">
         <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-soc-textDim">
-          Compromised Canary Decoys ({report.triggeredDecoys.length})
+          Decoys opened in the simulation ({report.triggeredDecoys.length})
         </h4>
 
         {report.triggeredDecoys.length === 0 ? (
           <p className="text-xs text-soc-textDim italic bg-slate-900/40 p-3 rounded-lg border border-soc-border">
-            No honeytokens or decoy canaries breached during this session.
+            No decoy file or synthetic credential was opened in this view.
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -154,18 +154,22 @@ export const IncidentReportView: React.FC<IncidentReportViewProps> = ({ report }
       <div className="space-y-2">
         <h4 className="text-xs font-medium text-soc-textDim">Score explanation</h4>
         <p className="text-[12px] text-soc-textMuted">
-          Score is the sum of recorded event deltas, capped at 100. It is not a probability.
+          Points are awarded per event, then capped at 100. Repeated scans and other low-signal actions stop adding points. A session move is not a host compromise. This is not a probability.
         </p>
         {report.scoreBreakdown.length === 0 ? (
           <p className="text-[12px] text-soc-textDim">No scoring events in this view.</p>
         ) : (
           <ul className="font-mono text-[11px] text-soc-textMuted space-y-1">
             {report.scoreBreakdown.map((row) => (
-              <li key={row.eventType} className="flex justify-between gap-3">
-                <span>
-                  {row.eventType} × {row.count}
-                </span>
-                <span>+{row.subtotal}</span>
+              <li key={row.eventType} className="border-b border-soc-border/60 pb-1">
+                <div className="flex justify-between gap-3">
+                  <span>
+                    {row.eventType} × {row.count}
+                    {row.suppressed > 0 ? ` (${row.suppressed} capped)` : ''}
+                  </span>
+                  <span>+{row.subtotal}</span>
+                </div>
+                <p className="text-soc-textDim font-sans">{row.note}</p>
               </li>
             ))}
             <li className="flex justify-between text-soc-text">

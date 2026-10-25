@@ -9,12 +9,12 @@
 
 **PHANTOMNET** is a high-signal cyber-deception prototype engineered to solve a fundamental security challenge: standard perimeter controls suffer from high false-positive rates and delayed detection. PHANTOMNET deploys high-interaction synthetic decoy digital assets—fake files, synthetic credentials, and monitored fake API endpoints—across a simulated enterprise topology.
 
-When an intruder touches any decoy asset, the event is immediately captured by an immutable, deterministic event engine. PHANTOMNET:
-1. **Generates high-signal alerts** with exact asset evidence and zero guesswork.
-2. **Reconstructs the attacker's trajectory** in real time across the network graph.
-3. **Chronologically sequences the incident** into a granular investigation timeline.
-4. **Calculates a deterministic threat score** reflecting cumulative intrusion risk.
-5. **Exports comprehensive incident response reports** in JSON for SOC teams.
+When the simulated operator touches a decoy asset, the action is appended to a browser-local event log. PHANTOMNET:
+1. **Derives alerts** from those simulated events, with the asset and honeytoken id that was touched.
+2. **Reconstructs the simulated session path** on the network graph, and draws attempted or blocked moves separately from session relocations.
+3. **Sequences the same event log** into an investigation timeline.
+4. **Calculates a deterministic score** that caps repeated low-signal actions and weights decoy interactions more heavily.
+5. **Exports the derived incident record** as JSON. The export is a simulation dossier, not tamper-proof evidence.
 
 *Note: In accordance with hackathon guidelines, blockchain is a track category name, not a requirement; this prototype focuses strictly on high-signal cyber deception and intrusion reconstruction.*
 
@@ -57,11 +57,11 @@ npm run build
 2. **15–30s (Environment & Decoys):**  
    Highlight the 6-node network: Gateway (`192.0.2.10`), Web Server (`192.0.2.20`), Workstation (`192.0.2.30`), Finance Server (`192.0.2.40`), Database (`192.0.2.50`), and Decoy Vault (`192.0.2.60`). Show how defender view reveals decoy badges while attacker view presents convincing decoy files (`payroll_Q3_2026.xlsx`), credentials (`DEMO_ONLY_NOT_VALID`), and endpoints (`/backup`).
 3. **30–50s (Interactive Attack):**  
-   Click **"Run Demo Attack"** (or use step-by-step attacker controls): Attacker scans Gateway, browses Web Server, pivots to Finance Server, opens the decoy payroll document, views the synthetic admin token, and attempts a lateral pivot to the Database.
-4. **50–70s (Unified Detection & Path Reconstruction):**  
-   Show the live response: Threat score surges to **100/100**, high-severity and critical alerts trigger with specific honeytoken IDs, and the network graph animates the exact traversed path in crimson edges. Point out the chronological timeline derived from the single event store.
-5. **70–90s (Incident Report & Export):**  
-   Navigate to the **Incidents** tab, inspect the automatically generated forensic incident report, demonstrate the **Export JSON Report** button, and demonstrate the **Reset Demo** capability.
+   Use **Demonstrate** or the step-by-step controls. The first action toward Finance, the vault, or the database is an attempt and does not relocate the session. A second action on that same route records a simulated move. Then open the payroll decoy, view the synthetic admin token, and present the synthetic credential.
+4. **50–70s (Detection and path):**  
+   Show the score, the decoy alerts, and the graph. A solid edge is a session move. An amber dashed edge is an attempt that did not relocate the session. The timeline is the same event log.
+5. **70–90s (Incident record and export):**  
+   Open **Incidents**, export the JSON record, and use **Reset**. Say plainly that this is an in-browser simulation stored in localStorage.
 
 ---
 
@@ -72,7 +72,7 @@ npm run build
 - **Network Topology:** `@xyflow/react` (React Flow) with customized nodes and reactive edge states
 - **Iconography:** `lucide-react`
 - **Testing:** Vitest for deterministic unit testing of state transitions and detection rules
-- **State Management:** Append-only immutable event reducer backed by `localStorage` persistence
+- **State Management:** Append-only simulated event reducer stored in `localStorage`. The log is editable in the browser and is not forensic storage.
 
 See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) and [`docs/ROADMAP.md`](./docs/ROADMAP.md) for full technical specifications.
 

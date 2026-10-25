@@ -11,12 +11,15 @@ import {
 } from 'lucide-react';
 import { Alert, Severity } from '../../domain/types';
 import { INITIAL_NODES } from '../../data/networkSeed';
+import { presentCopy, presentHost } from '../../domain/presentation';
+import { Perspective } from '../../hooks/useSimulationStore';
 
 interface AlertsPanelProps {
   alerts: Alert[];
+  perspective?: Perspective;
 }
 
-export const AlertsPanel: React.FC<AlertsPanelProps> = ({ alerts }) => {
+export const AlertsPanel: React.FC<AlertsPanelProps> = ({ alerts, perspective = 'defender' }) => {
   const [filterSeverity, setFilterSeverity] = useState<Severity | 'all'>('all');
 
   const filteredAlerts = alerts.filter((a) => {
@@ -63,13 +66,15 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = ({ alerts }) => {
           <CheckCircle className="w-8 h-8 mx-auto text-slate-700" />
           <p className="text-xs font-mono">No active alerts matching this filter.</p>
           <p className="text-[11px]">
-            Execute attacker actions or click "Run Demo Attack" to trigger honeytoken canaries.
+            Record a simulated action to derive alerts. This panel is not a live sensor feed.
           </p>
         </div>
       ) : (
         <div className="space-y-2.5 max-h-[500px] overflow-y-auto pr-1">
           {filteredAlerts.map((alert) => {
-            const host = INITIAL_NODES.find((n) => n.id === alert.nodeId);
+            const node = INITIAL_NODES.find((n) => n.id === alert.nodeId);
+            const host = node ? presentHost(node, perspective) : null;
+            const conceal = perspective === 'attacker';
 
             return (
               <div
@@ -95,7 +100,10 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = ({ alerts }) => {
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <h4 className="text-xs font-mono font-bold text-slate-100">
-                          {alert.title}
+                          {presentCopy(
+                            conceal ? alert.title.replace('Decoy file opened', 'File opened') : alert.title,
+                            perspective
+                          )}
                         </h4>
                         <span
                           className={`px-1.5 py-0.2 rounded font-mono text-[9px] uppercase font-bold ${
@@ -111,16 +119,16 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = ({ alerts }) => {
                       </div>
 
                       <p className="text-xs text-slate-300 mt-1">
-                        {alert.description}
+                        {presentCopy(alert.description, perspective)}
                       </p>
 
                       {/* Evidence Card */}
                       <div className="mt-2 bg-slate-950/80 p-2 rounded border border-soc-border/60 font-mono text-[11px] text-soc-textMuted space-y-1">
                         <div>
                           <span className="text-cyan-400 font-semibold">Evidence: </span>
-                          <span className="text-slate-200">{alert.evidence}</span>
+                          <span className="text-slate-200">{presentCopy(alert.evidence, perspective)}</span>
                         </div>
-                        {alert.honeytokenId && (
+                        {!conceal && alert.honeytokenId && (
                           <div className="flex items-center gap-1.5 text-emerald-400">
                             <Key className="w-3 h-3" />
                             <span>HoneyToken Tripwire: </span>
@@ -138,7 +146,7 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = ({ alerts }) => {
                     </div>
                     <div className="flex items-center gap-1 justify-end text-slate-400">
                       <Server className="w-3 h-3" />
-                      <span>{host?.ip || alert.nodeId}</span>
+                      <span>{conceal ? host?.label || alert.nodeId : node?.ip || alert.nodeId}</span>
                     </div>
                   </div>
                 </div>

@@ -98,15 +98,16 @@ export function useSimulationStore() {
         showNotification('Playback is active. Return to the live session before recording a new action.', 'info');
         return false;
       }
-      let outcome: { success: boolean; message: string } | null = null;
+      let outcome: { success: boolean; message: string; move?: 'attempted' | 'blocked' | 'succeeded' } | null = null;
       setSession((current) => {
         const result = appendSimulationEvent(current, params);
-        outcome = { success: result.success, message: result.message };
+        outcome = { success: result.success, message: result.message, move: result.outcome };
         return result.updatedSession;
       });
       if (outcome) {
-        const { success, message } = outcome;
-        showNotification(message, success ? 'success' : 'error');
+        const { success, message, move } = outcome;
+        const tone = move === 'attempted' ? 'info' : move === 'blocked' || !success ? 'error' : 'success';
+        showNotification(message, tone);
         return success;
       }
       return false;

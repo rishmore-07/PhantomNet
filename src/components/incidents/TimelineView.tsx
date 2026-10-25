@@ -11,10 +11,13 @@ import {
   Radar,
 } from 'lucide-react';
 import { IntrusionEvent, EventType } from '../../domain/types';
+import { presentCopy } from '../../domain/presentation';
+import { Perspective } from '../../hooks/useSimulationStore';
 
 interface TimelineViewProps {
   events: IntrusionEvent[];
   activeEventId?: string;
+  perspective?: Perspective;
 }
 
 const eventTypeIcons: Record<EventType, React.FC<{ className?: string }>> = {
@@ -29,9 +32,14 @@ const eventTypeIcons: Record<EventType, React.FC<{ className?: string }>> = {
   DECOY_DEPLOYED: Radar,
 };
 
-export const TimelineView: React.FC<TimelineViewProps> = ({ events, activeEventId }) => {
-  // Ordered chronologically
-  const chronologicalEvents = [...events].sort(
+export const TimelineView: React.FC<TimelineViewProps> = ({
+  events,
+  activeEventId,
+  perspective = 'defender',
+}) => {
+  const visible =
+    perspective === 'attacker' ? events.filter((event) => event.actor !== 'system') : events;
+  const chronologicalEvents = [...visible].sort(
     (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
   );
 
@@ -44,7 +52,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ events, activeEventI
             <span>Chronological Incident Timeline ({chronologicalEvents.length} Events)</span>
           </h3>
           <p className="text-xs text-soc-textDim">
-            Sequential forensic record derived directly from the immutable event stream.
+            Append-only simulated event log. Records can be cleared in this browser. They are not tamper-proof evidence.
           </p>
         </div>
       </div>
@@ -109,19 +117,24 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ events, activeEventI
                 </div>
 
                 <p className="text-slate-300 text-[11px]">
-                  {event.explanation}
+                  {presentCopy(event.explanation, perspective)}
                 </p>
 
                 <div className="flex items-center justify-between pt-1 border-t border-soc-border/40 text-[10px] font-mono text-soc-textDim">
                   <div className="flex items-center gap-1.5 text-cyan-300">
                     <span>Host:</span>
-                    <span className="font-bold">{event.targetNodeId || event.sourceNodeId}</span>
+                    <span className="font-bold">
+                      {presentCopy(event.targetNodeId || event.sourceNodeId || '', perspective)}
+                    </span>
                     {event.type === 'LATERAL_MOVE_ATTEMPT' && (
                       <span className="text-soc-textMuted">
-                        ({event.sourceNodeId} → {event.targetNodeId})
+                        ({presentCopy(`${event.sourceNodeId} → ${event.targetNodeId}`, perspective)}
+                        {event.outcome ? ` · ${event.outcome}` : ''})
                       </span>
                     )}
-                    {event.policyId && <span className="text-soc-cyan">{event.policyId}</span>}
+                    {perspective === 'defender' && event.policyId && (
+                      <span className="text-soc-cyan">{event.policyId}</span>
+                    )}
                   </div>
 
                   {event.scoreDelta > 0 && (

@@ -61,6 +61,9 @@ export type EventType =
 
 export type Severity = 'info' | 'low' | 'medium' | 'high' | 'critical';
 
+/** Recorded result of a simulated lateral action. Absence means a legacy event that relocated the session. */
+export type ActionOutcome = 'attempted' | 'blocked' | 'succeeded';
+
 export interface IntrusionEvent {
   id: string;
   sessionId: string;
@@ -79,6 +82,8 @@ export interface IntrusionEvent {
   /** Set only on DECOY_DEPLOYED events emitted by the policy engine. */
   policyId?: string;
   deploymentReason?: string;
+  /** Present on lateral-move events. Legacy logs omit it and are treated as succeeded. */
+  outcome?: ActionOutcome;
 }
 
 export interface Alert {
@@ -107,6 +112,7 @@ export interface AttackPathStep {
   timestamp: string;
   eventId: string;
   type: EventType;
+  outcome: ActionOutcome;
 }
 
 export interface IncidentReport {
@@ -156,6 +162,9 @@ export interface ScoreComponent {
   count: number;
   deltaEach: number;
   subtotal: number;
+  /** Events of this type that added no points because of a repeat or a category cap. */
+  suppressed: number;
+  note: string;
 }
 
 export interface MitreMappingRecord {

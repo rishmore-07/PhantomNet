@@ -53,7 +53,7 @@ describe('adaptive deception', () => {
 
     session = appendSimulationEvent(session, { type: 'SCAN_HOST', targetNodeId: 'web' }).updatedSession;
     expect(session.events.filter((item) => item.policyId === 'policy-repeated-recon')).toHaveLength(1);
-    expect(deriveThreatScore(session)).toBe(15);
+    expect(deriveThreatScore(session)).toBe(8);
   });
 
   it('does not list an adaptive asset before its deployment event', () => {
@@ -73,7 +73,13 @@ describe('adaptive deception', () => {
       type: 'LATERAL_MOVE_ATTEMPT',
       targetNodeId: 'web',
     }).updatedSession;
-    session = appendSimulationEvent(session, {
+    const attempted = appendSimulationEvent(session, {
+      type: 'LATERAL_MOVE_ATTEMPT',
+      targetNodeId: 'finance',
+    });
+    expect(attempted.outcome).toBe('attempted');
+    expect(attempted.updatedSession.currentNodeId).toBe('web');
+    session = appendSimulationEvent(attempted.updatedSession, {
       type: 'LATERAL_MOVE_ATTEMPT',
       targetNodeId: 'finance',
     }).updatedSession;
@@ -195,6 +201,28 @@ describe('replay and reporting', () => {
     expect(sanitized?.events.some((item) => item.id === 'evt-bad')).toBe(false);
     expect(sanitized?.currentNodeId).toBe('gateway');
     expect(sanitizeSession({ events: [] })).toBeNull();
+  });
+});
+
+describe('movement outcomes', () => {
+  it('treats a stored lateral event without an outcome as a session move', () => {
+    const session = createInitialSession();
+    const legacy = {
+      ...session,
+      events: [
+        ...session.events,
+        event({
+          id: 'legacy-move',
+          type: 'LATERAL_MOVE_ATTEMPT',
+          sourceNodeId: 'gateway',
+          targetNodeId: 'web',
+          timestamp: '2026-10-25T00:00:03.000Z',
+        }),
+      ],
+    };
+    expect(legacy.events[1].outcome).toBeUndefined();
+    expect(projectSessionAt(legacy, 1).currentNodeId).toBe('web');
+    expect(deriveAttackPath(projectSessionAt(legacy, 1)).pathNodes).toEqual(['gateway', 'web']);
   });
 });
 

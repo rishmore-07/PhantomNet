@@ -10,7 +10,11 @@ export function projectSessionAt(session: SimulationSession, index: number): Sim
   const events = session.events.slice(0, clamped + 1);
   let currentNodeId: NodeId = 'gateway';
   for (const event of events) {
-    if (event.type === 'LATERAL_MOVE_ATTEMPT' && event.targetNodeId) {
+    if (
+      event.type === 'LATERAL_MOVE_ATTEMPT' &&
+      event.targetNodeId &&
+      (event.outcome === 'succeeded' || event.outcome === undefined)
+    ) {
       currentNodeId = event.targetNodeId;
     }
   }
@@ -33,6 +37,7 @@ export function sessionSignature(session: SimulationSession) {
       assetId: event.assetId ?? null,
       policyId: event.policyId ?? null,
       deploymentReason: event.deploymentReason ?? null,
+      outcome: event.outcome ?? null,
       scoreDelta: event.scoreDelta,
       severity: event.severity,
       honeytokenId: event.honeytokenId ?? null,

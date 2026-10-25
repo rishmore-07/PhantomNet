@@ -40,7 +40,7 @@ sequenceDiagram
     participant D as Defender UI
     A->>S: performAction(OPEN_DECOY_FILE, finance-server)
     S->>S: Validate session/state transition
-    S->>S: append immutable timestamped event
+    S->>S: append timestamped event to the simulated log
     S->>R: Derive evidence, severity and score
     R-->>D: Alert + topology path + timeline + KPIs
     S->>S: Persist session/events to localStorage

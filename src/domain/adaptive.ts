@@ -31,11 +31,15 @@ function policyRepeatedRecon(events: IntrusionEvent[]): AdaptiveDecision | null 
   };
 }
 
+function isPivot(event: IntrusionEvent): boolean {
+  return event.type === 'LATERAL_MOVE_ATTEMPT' && event.outcome !== 'blocked';
+}
+
 function policyRestrictedSegment(events: IntrusionEvent[]): AdaptiveDecision | null {
   const event = latest(events);
-  if (!event || event.type !== 'LATERAL_MOVE_ATTEMPT' || !event.targetNodeId) return null;
+  if (!event || !isPivot(event) || !event.targetNodeId) return null;
   if (!RESTRICTED.includes(event.targetNodeId)) return null;
-  const pivots = events.filter((item) => item.type === 'LATERAL_MOVE_ATTEMPT');
+  const pivots = events.filter(isPivot);
   if (pivots.length < 2) return null;
   const template = templateByPolicy('policy-restricted-segment');
   if (!template) return null;
@@ -44,7 +48,7 @@ function policyRestrictedSegment(events: IntrusionEvent[]): AdaptiveDecision | n
     assetId: template.id,
     nodeId: event.targetNodeId,
     assetLabel: template.label,
-    reason: `Two simulated lateral moves were recorded, and the later move entered ${event.targetNodeId}. ${template.label} was staged on that host to match interest in the restricted segment.`,
+    reason: `Two simulated lateral actions were recorded, and the later one targeted restricted host ${event.targetNodeId} (${event.outcome === 'succeeded' ? 'session relocated' : 'attempt only, session not relocated'}). ${template.label} was staged on that host.`,
   };
 }
 

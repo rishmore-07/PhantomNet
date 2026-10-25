@@ -70,7 +70,7 @@ const TECHNIQUE_BY_EVENT: Partial<Record<EventType, TechniqueMap>> = {
     techniqueId: 'T1021',
     techniqueName: 'Remote Services',
     detectionExplanation:
-      'The simulation recorded a move to an adjacent host. T1021 is used at technique level only. No specific remote-service sub-technique is asserted.',
+      'The simulation recorded a lateral action toward an adjacent host. T1021 is used at technique level only. A blocked or attempted outcome is not a successful session move, and no remote-service sub-technique is asserted.',
   },
 };
 

@@ -7,17 +7,20 @@ export const GOLDEN_ACTIONS: PerformActionParams[] = [
   { type: 'SCAN_HOST', targetNodeId: 'web' },
   { type: 'BROWSE_DIRECTORY', targetNodeId: 'web' },
   { type: 'LATERAL_MOVE_ATTEMPT', targetNodeId: 'finance' },
+  { type: 'LATERAL_MOVE_ATTEMPT', targetNodeId: 'finance' },
   {
     type: 'SENSITIVE_FILE_OPENED',
     targetNodeId: 'finance',
     assetId: 'asset-payroll-file',
   },
   { type: 'LATERAL_MOVE_ATTEMPT', targetNodeId: 'decoy-vault' },
+  { type: 'LATERAL_MOVE_ATTEMPT', targetNodeId: 'decoy-vault' },
   {
     type: 'HONEYTOKEN_VIEWED',
     targetNodeId: 'decoy-vault',
     assetId: 'asset-admin-token',
   },
+  { type: 'LATERAL_MOVE_ATTEMPT', targetNodeId: 'database' },
   { type: 'LATERAL_MOVE_ATTEMPT', targetNodeId: 'database' },
   {
     type: 'FAKE_CREDENTIAL_USED',

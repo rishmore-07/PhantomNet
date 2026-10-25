@@ -1,10 +1,10 @@
 import { FileText, Globe, Key, X } from 'lucide-react';
 import { DecoyAsset, DecoyDeploymentRecord, NodeId, NodeStatus, SimulationSession } from '../../domain/types';
-import { INITIAL_NODES, getAllowedTransitions } from '../../data/networkSeed';
+import { INITIAL_NODES } from '../../data/networkSeed';
 import { assetsOnNode, interactionForAsset } from '../../domain/assets';
 import { presentHost } from '../../domain/presentation';
 import { Perspective } from '../../hooks/useSimulationStore';
-import { PerformActionParams } from '../../domain/simulation';
+import { lateralControlLabel, PerformActionParams } from '../../domain/simulation';
 
 interface NodeDetailsPanelProps {
   session: SimulationSession;
@@ -37,7 +37,8 @@ export function NodeDetailsPanel({
   const status = nodeStatuses[selectedNodeId];
   const resident = currentNodeId === selectedNodeId;
   const assets = assetsOnNode(session, selectedNodeId);
-  const canMove = !resident && getAllowedTransitions(currentNodeId).includes(selectedNodeId);
+  const moveLabel = lateralControlLabel(session.events, currentNodeId, selectedNodeId);
+  const moveDisabled = resident || actionsLocked || moveLabel === 'Route already blocked';
   const defender = perspective === 'defender';
 
   return (
@@ -141,11 +142,11 @@ export function NodeDetailsPanel({
           Scan host
         </button>
         <button
-          disabled={!canMove || actionsLocked}
+          disabled={moveDisabled}
           onClick={() => onPerformAction({ type: 'LATERAL_MOVE_ATTEMPT', targetNodeId: selectedNodeId })}
           className="h-8 rounded-md border border-soc-border text-[12px] text-soc-text disabled:opacity-40 transition-colors duration-200"
         >
-          {resident ? 'Current host' : canMove ? 'Move here' : 'No route'}
+          {moveLabel}
         </button>
       </div>
     </aside>

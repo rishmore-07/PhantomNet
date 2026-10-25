@@ -1,9 +1,9 @@
 import { FileText, FolderOpen, Globe, KeyRound, Radio } from 'lucide-react';
 import { DecoyAsset, DecoyDeploymentRecord, IntrusionEvent, NodeId } from '../../domain/types';
-import { INITIAL_NODES, getAllowedTransitions } from '../../data/networkSeed';
+import { INITIAL_NODES } from '../../data/networkSeed';
 import { interactionForAsset } from '../../domain/assets';
 import { presentHost } from '../../domain/presentation';
-import { PerformActionParams } from '../../domain/simulation';
+import { lateralControlLabel, PerformActionParams } from '../../domain/simulation';
 import { Perspective } from '../../hooks/useSimulationStore';
 
 interface AttackerConsoleProps {
@@ -23,7 +23,10 @@ function shellLine(event: IntrusionEvent, perspective: Perspective): string | nu
   if (event.type === 'SCAN_HOST') return `scan ${event.targetNodeId} — simulated service list returned`;
   if (event.type === 'BROWSE_DIRECTORY') return `ls ${event.targetNodeId}`;
   if (event.type === 'LOGIN_FAILED') return `login ${event.targetNodeId} — rejected`;
-  if (event.type === 'LATERAL_MOVE_ATTEMPT') return `move ${event.sourceNodeId} -> ${event.targetNodeId}`;
+  if (event.type === 'LATERAL_MOVE_ATTEMPT') {
+    const outcome = event.outcome || 'succeeded';
+    return `move ${event.sourceNodeId} -> ${event.targetNodeId} (${outcome})`;
+  }
   if (event.type === 'SENSITIVE_FILE_OPENED') return `open ${event.assetLabel || 'file'}`;
   if (event.type === 'HONEYTOKEN_VIEWED') return `read ${event.assetLabel || 'credential'}`;
   if (event.type === 'FAKE_CREDENTIAL_USED') return `auth ${event.targetNodeId} — synthetic credential presented`;
@@ -43,7 +46,6 @@ export function AttackerConsole({
 }: AttackerConsoleProps) {
   const node = INITIAL_NODES.find((item) => item.id === currentNodeId);
   const host = node ? presentHost(node, perspective) : null;
-  const hops = getAllowedTransitions(currentNodeId);
   const defender = perspective === 'defender';
   const lines = events
     .map((event) => ({ id: event.id, text: shellLine(event, perspective), time: event.timestamp }))
@@ -109,20 +111,17 @@ export function AttackerConsole({
           <div className="grid sm:grid-cols-2 gap-1.5">
             {INITIAL_NODES.map((candidate) => {
               const label = presentHost(candidate, perspective).label;
-              const here = candidate.id === currentNodeId;
-              const open = hops.includes(candidate.id);
+              const moveLabel = lateralControlLabel(events, currentNodeId, candidate.id);
               return (
                 <button
                   key={candidate.id}
-                  disabled={here || !open || actionsLocked}
+                  disabled={actionsLocked || moveLabel === 'Current host' || moveLabel === 'Route already blocked'}
                   onClick={() => onPerformAction({ type: 'LATERAL_MOVE_ATTEMPT', targetNodeId: candidate.id })}
                   className="text-left rounded-md border border-soc-border px-2.5 py-2 disabled:opacity-40 hover:border-soc-borderLight transition-colors duration-200"
                 >
                   <div className="text-[12px] text-soc-text truncate">{label}</div>
                   <div className="font-mono text-[10px] text-soc-textDim">{candidate.ip}</div>
-                  <div className="text-[10px] text-soc-textMuted mt-0.5">
-                    {here ? 'Current session' : open ? 'Route exists' : 'No route'}
-                  </div>
+                  <div className="text-[10px] text-soc-textMuted mt-0.5">{moveLabel}</div>
                 </button>
               );
             })}

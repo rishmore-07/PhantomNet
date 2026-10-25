@@ -24,7 +24,9 @@ interface NetworkGraphProps {
   attackPath: {
     visitedNodeIds: Set<NodeId>;
     traversedEdgeIds: Set<string>;
-    steps: Array<{ fromNodeId?: NodeId; toNodeId: NodeId }>;
+    attemptedEdgeIds: Set<string>;
+    blockedEdgeIds: Set<string>;
+    steps: Array<{ fromNodeId?: NodeId; toNodeId: NodeId; outcome?: string }>;
   };
   perspective: Perspective;
   adaptiveNodeIds: NodeId[];
@@ -91,35 +93,47 @@ export function NetworkGraph({
   }, [nodeStatuses, currentNodeId, perspective, selectedNodeId, adaptiveNodeIds]);
 
   const edges: Edge[] = useMemo(() => {
+    const succeededSteps = attackPath.steps.filter((step) => !step.outcome || step.outcome === 'succeeded');
+    const last = succeededSteps[succeededSteps.length - 1];
     return INITIAL_EDGES.map((edgeDef) => {
       const traversed = attackPath.traversedEdgeIds.has(edgeDef.id);
-      const last = attackPath.steps[attackPath.steps.length - 1];
+      const attempted = attackPath.attemptedEdgeIds.has(edgeDef.id);
+      const blocked = attackPath.blockedEdgeIds.has(edgeDef.id);
       const latest = Boolean(
         traversed &&
           last?.fromNodeId &&
           ((edgeDef.source === last.fromNodeId && edgeDef.target === last.toNodeId) ||
             (edgeDef.source === last.toNodeId && edgeDef.target === last.fromNodeId))
       );
-
-      if (!traversed) {
-        return {
-          id: edgeDef.id,
-          source: edgeDef.source,
-          target: edgeDef.target,
-          type: 'smoothstep',
-        style: { stroke: '#263244', strokeWidth: 1 },
-        };
-      }
-
-      return {
+      const base = {
         id: edgeDef.id,
         source: edgeDef.source,
         target: edgeDef.target,
-        type: 'smoothstep',
-        animated: Boolean(latest),
-        style: { stroke: '#F87171', strokeWidth: latest ? 1.8 : 1.4 },
-        markerEnd: { type: MarkerType.ArrowClosed, color: '#F87171', width: 14, height: 14 },
+        type: 'smoothstep' as const,
       };
+
+      if (traversed) {
+        return {
+          ...base,
+          animated: Boolean(latest),
+          style: { stroke: '#F87171', strokeWidth: latest ? 1.8 : 1.4 },
+          markerEnd: { type: MarkerType.ArrowClosed, color: '#F87171', width: 14, height: 14 },
+        };
+      }
+      if (attempted) {
+        return {
+          ...base,
+          style: { stroke: '#FBBF24', strokeWidth: 1.4, strokeDasharray: '5 4' },
+          markerEnd: { type: MarkerType.ArrowClosed, color: '#FBBF24', width: 12, height: 12 },
+        };
+      }
+      if (blocked) {
+        return {
+          ...base,
+          style: { stroke: '#64748B', strokeWidth: 1.2, strokeDasharray: '2 4' },
+        };
+      }
+      return { ...base, style: { stroke: '#263244', strokeWidth: 1 } };
     });
   }, [attackPath]);
 
@@ -133,9 +147,12 @@ export function NetworkGraph({
             <span className="inline-flex items-center gap-1"><i className="w-1.5 h-1.5 rounded-full bg-soc-amber" /> Suspicious</span>
             <span className="inline-flex items-center gap-1"><i className="w-1.5 h-1.5 rounded-full bg-soc-red" /> Decoy touched</span>
             <span className="inline-flex items-center gap-1"><i className="w-1.5 h-1.5 rounded-sm bg-soc-cyan" /> Staged decoy</span>
+            <span className="inline-flex items-center gap-1"><i className="w-3 h-px bg-[#F87171]" /> Session moved</span>
+            <span className="inline-flex items-center gap-1"><i className="w-3 border-t border-dashed border-[#FBBF24]" /> Attempted</span>
+            <span className="inline-flex items-center gap-1"><i className="w-3 border-t border-dotted border-[#64748B]" /> Blocked</span>
           </>
         ) : (
-          <span>Session location only. Detection markers are hidden in this view.</span>
+          <span>Solid path: session moved. Amber dash: attempt only. Gray dash: blocked route. Detection markers stay hidden here.</span>
         )}
       </div>
       <ReactFlow

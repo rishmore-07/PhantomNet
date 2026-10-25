@@ -1,10 +1,11 @@
 import {
+  ActionOutcome,
   EventType,
   IntrusionEvent,
   NodeId,
   SimulationSession,
 } from './types';
-import { THREAT_RULES } from './rules';
+import { awardScore, THREAT_RULES } from './rules';
 import { getAllowedTransitions } from '../data/networkSeed';
 import { findAsset, isAdaptiveAssetId } from './assets';
 import { planAdaptiveDeployments } from './adaptive';
@@ -22,6 +23,85 @@ export interface ActionResult {
   message: string;
   event?: IntrusionEvent;
   updatedSession: SimulationSession;
+  /** Set when a lateral action was recorded, including blocked and unsuccessful attempts. */
+  outcome?: ActionOutcome;
+}
+
+const RESTRICTED_HOSTS: NodeId[] = ['finance', 'database', 'decoy-vault'];
+
+export function classifyLateralMove(
+  session: SimulationSession,
+  targetNodeId: NodeId | undefined
+): { ok: true; outcome: ActionOutcome; detail: string } | { ok: false; reason: string } {
+  if (!targetNodeId) {
+    return { ok: false, reason: 'Target host must be specified for a lateral move.' };
+  }
+  if (targetNodeId === session.currentNodeId) {
+    return { ok: false, reason: `The simulated session is already on ${session.currentNodeId}.` };
+  }
+  const allowedHops = getAllowedTransitions(session.currentNodeId);
+  if (!allowedHops.includes(targetNodeId)) {
+    return {
+      ok: true,
+      outcome: 'blocked',
+      detail: `No adjacent route from ${session.currentNodeId} to ${targetNodeId}. The simulated session stayed on ${session.currentNodeId}.`,
+    };
+  }
+  if (RESTRICTED_HOSTS.includes(targetNodeId)) {
+    const alreadyAttempted = session.events.some(
+      (event) =>
+        event.type === 'LATERAL_MOVE_ATTEMPT' &&
+        event.outcome === 'attempted' &&
+        event.sourceNodeId === session.currentNodeId &&
+        event.targetNodeId === targetNodeId
+    );
+    if (!alreadyAttempted) {
+      return {
+        ok: true,
+        outcome: 'attempted',
+        detail: `Access to restricted host ${targetNodeId} was attempted from ${session.currentNodeId}. The simulated session did not relocate.`,
+      };
+    }
+    return {
+      ok: true,
+      outcome: 'succeeded',
+      detail: `Simulated session followed the allowed edge from ${session.currentNodeId} to ${targetNodeId} after an earlier attempt. This relocates the session. It does not record a host compromise.`,
+    };
+  }
+  return {
+    ok: true,
+    outcome: 'succeeded',
+    detail: `Simulated session followed an allowed edge from ${session.currentNodeId} to ${targetNodeId}. This records a location change, not a compromise.`,
+  };
+}
+
+export function lateralControlLabel(
+  events: IntrusionEvent[],
+  currentNodeId: NodeId,
+  targetNodeId: NodeId
+): string {
+  if (targetNodeId === currentNodeId) return 'Current host';
+  const open = getAllowedTransitions(currentNodeId).includes(targetNodeId);
+  if (!open) {
+    const seen = events.some(
+      (event) =>
+        event.outcome === 'blocked' &&
+        event.sourceNodeId === currentNodeId &&
+        event.targetNodeId === targetNodeId
+    );
+    return seen ? 'Route already blocked' : 'Probe blocked route';
+  }
+  if (RESTRICTED_HOSTS.includes(targetNodeId)) {
+    const pending = events.some(
+      (event) =>
+        event.type === 'LATERAL_MOVE_ATTEMPT' &&
+        event.outcome === 'attempted' &&
+        event.sourceNodeId === currentNodeId &&
+        event.targetNodeId === targetNodeId
+    );
+    return pending ? 'Enter after attempt' : 'Attempt access';
+  }
+  return 'Follow route';
 }
 
 let eventCounter = 1;
@@ -112,7 +192,7 @@ export function validateAction(
     if (asset.nodeId !== currentNodeId) {
       return {
         valid: false,
-        reason: `Cannot interact with asset '${asset.label}' located on '${asset.nodeId}' while current compromise is on '${currentNodeId}'. Move to '${asset.nodeId}' first.`,
+        reason: `Cannot interact with '${asset.label}' on '${asset.nodeId}' while the simulated session is on '${currentNodeId}'. Relocate the session to '${asset.nodeId}' first.`,
       };
     }
   }
@@ -121,25 +201,40 @@ export function validateAction(
 }
 
 /**
- * Executes a simulated attacker action, appending an immutable event if valid.
+ * Records a simulated attacker action on the append-only session log.
+ * A lateral attempt updates the session location only when the outcome is succeeded.
  */
 export function appendSimulationEvent(
   session: SimulationSession,
   params: PerformActionParams
 ): ActionResult {
-  const validation = validateAction(session, params);
-  if (!validation.valid) {
-    return {
-      success: false,
-      message: validation.reason || 'Action rejected by simulation engine.',
-      updatedSession: session,
-    };
+  let lateral: ReturnType<typeof classifyLateralMove> | null = null;
+  if (params.type === 'LATERAL_MOVE_ATTEMPT') {
+    lateral = classifyLateralMove(session, params.targetNodeId);
+    if (!lateral.ok) {
+      return {
+        success: false,
+        message: lateral.reason,
+        updatedSession: session,
+      };
+    }
+  } else {
+    const validation = validateAction(session, params);
+    if (!validation.valid) {
+      return {
+        success: false,
+        message: validation.reason || 'Action rejected by simulation engine.',
+        updatedSession: session,
+      };
+    }
   }
 
   const rule = THREAT_RULES[params.type];
   const now = new Date().toISOString();
   const sourceNode = session.currentNodeId;
   const targetNode = params.targetNodeId || session.currentNodeId;
+  const moveOutcome = lateral && lateral.ok ? lateral.outcome : undefined;
+  const awarded = awardScore(session.events, params.type, moveOutcome, targetNode, params.assetId);
 
   let assetLabel: string | undefined;
   let honeytokenId: string | undefined;
@@ -151,10 +246,8 @@ export function appendSimulationEvent(
     }
   }
 
-  let nextCurrentNode = session.currentNodeId;
-  if (params.type === 'LATERAL_MOVE_ATTEMPT' && params.targetNodeId) {
-    nextCurrentNode = params.targetNodeId;
-  }
+  const nextCurrentNode =
+    moveOutcome === 'succeeded' && params.targetNodeId ? params.targetNodeId : session.currentNodeId;
 
   const newEvent: IntrusionEvent = {
     id: generateEventId(),
@@ -166,19 +259,20 @@ export function appendSimulationEvent(
     targetNodeId: targetNode,
     assetId: params.assetId,
     assetLabel,
-    severity: rule.baseSeverity,
-    scoreDelta: rule.scoreDelta,
+    severity: awarded.severity,
+    scoreDelta: awarded.delta,
     honeytokenId,
+    outcome: moveOutcome,
     explanation:
       params.customExplanation ||
-      (params.type === 'LATERAL_MOVE_ATTEMPT'
-        ? `Simulated move from ${sourceNode} to ${targetNode}.`
+      (lateral && lateral.ok
+        ? lateral.detail
         : params.type === 'SENSITIVE_FILE_OPENED'
-        ? `File '${assetLabel || 'document'}' opened on ${targetNode}.`
+        ? `Synthetic file '${assetLabel || 'document'}' opened on ${targetNode}.`
         : params.type === 'HONEYTOKEN_VIEWED'
-        ? `Credential file '${assetLabel || 'secret'}' read on ${targetNode}.`
+        ? `Synthetic credential '${assetLabel || 'secret'}' read on ${targetNode}.`
         : params.type === 'FAKE_CREDENTIAL_USED'
-        ? `Synthetic credential presented to ${targetNode}.`
+        ? `Synthetic credential presented to ${targetNode}. No real account was used.`
         : params.type === 'LOGIN_FAILED'
         ? `Simulated login rejected on ${targetNode}.`
         : params.type === 'SCAN_HOST'
@@ -189,6 +283,7 @@ export function appendSimulationEvent(
       targetNodeId: targetNode,
       assetId: params.assetId,
       assetLabel,
+      outcome: moveOutcome,
     }),
   };
 
@@ -223,9 +318,21 @@ export function appendSimulationEvent(
     events,
   };
 
+  const recorded =
+    moveOutcome === 'blocked'
+      ? lateral && lateral.ok
+        ? lateral.detail
+        : 'Route blocked. The simulated session was not relocated.'
+      : moveOutcome === 'attempted'
+        ? lateral && lateral.ok
+          ? lateral.detail
+          : 'Access attempted. The simulated session was not relocated.'
+        : `Recorded ${params.type}.`;
+
   return {
-    success: true,
-    message: `Event [${params.type}] successfully recorded.`,
+    success: moveOutcome !== 'blocked',
+    outcome: moveOutcome,
+    message: recorded,
     event: newEvent,
     updatedSession,
   };

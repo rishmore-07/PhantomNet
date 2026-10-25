@@ -1,10 +1,12 @@
-import { EventType, NodeId, SimulationSession } from './types';
+import { ActionOutcome, EventType, NodeId, SimulationSession } from './types';
 import { projectSessionAt } from './replay';
 
 export const STORAGE_KEY = 'phantomnet_session_v2';
 export const LEGACY_STORAGE_KEY = 'phantomnet_session_v1';
 
 const NODE_IDS: NodeId[] = ['gateway', 'web', 'workstation', 'finance', 'database', 'decoy-vault'];
+
+const OUTCOMES: ActionOutcome[] = ['attempted', 'blocked', 'succeeded'];
 
 const EVENT_TYPES: EventType[] = [
   'SESSION_STARTED',
@@ -55,6 +57,7 @@ export function sanitizeSession(input: unknown): SimulationSession | null {
       ...event,
       scoreDelta: typeof event.scoreDelta === 'number' ? event.scoreDelta : 0,
       explanation: typeof event.explanation === 'string' ? event.explanation : '',
+      outcome: OUTCOMES.includes(event.outcome as ActionOutcome) ? (event.outcome as ActionOutcome) : undefined,
     })),
   };
 

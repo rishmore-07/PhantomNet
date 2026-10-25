@@ -201,17 +201,31 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'intel' && <ThreatIntelView report={incidentReport} />}
+          {activeTab === 'intel' && (
+            <div className="space-y-3">
+              {perspective === 'attacker' && (
+                <p className="text-[12px] text-soc-textMuted border border-soc-border rounded-md px-3 py-2">
+                  This page is the SOC mapping of the simulated log. It names techniques and decoy policies. The attacker simulator does not show those markers.
+                </p>
+              )}
+              <ThreatIntelView report={incidentReport} />
+            </div>
+          )}
 
           {activeTab === 'incidents' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-              <AlertsPanel alerts={alerts} />
-              <TimelineView events={session.events} activeEventId={cursorEvent?.id} />
+              <AlertsPanel alerts={alerts} perspective={perspective} />
+              <TimelineView events={session.events} activeEventId={cursorEvent?.id} perspective={perspective} />
             </div>
           )}
 
           {activeTab === 'reports' && (
             <div className="space-y-3">
+              {perspective === 'attacker' && (
+                <p className="text-[12px] text-soc-textMuted border border-soc-border rounded-md px-3 py-2">
+                  The exported record is the full simulated dossier, including deployment reasons. It is not shown inside the attacker simulator.
+                </p>
+              )}
               <div className="flex justify-end">
                 <button
                   onClick={downloadReport}

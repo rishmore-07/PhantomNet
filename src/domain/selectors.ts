@@ -51,43 +51,47 @@ export function deriveThreatLevel(session: SimulationSession) {
 export function deriveAttackPath(session: SimulationSession): {
   visitedNodeIds: Set<NodeId>;
   traversedEdgeIds: Set<string>;
+  attemptedEdgeIds: Set<string>;
+  blockedEdgeIds: Set<string>;
   steps: AttackPathStep[];
   pathNodes: NodeId[];
 } {
   const visitedNodeIds = new Set<NodeId>(['gateway']);
   const traversedEdgeIds = new Set<string>();
+  const attemptedEdgeIds = new Set<string>();
+  const blockedEdgeIds = new Set<string>();
   const steps: AttackPathStep[] = [];
   const pathNodes: NodeId[] = ['gateway'];
 
   for (const event of session.events) {
     if (event.type === 'LATERAL_MOVE_ATTEMPT' && event.sourceNodeId && event.targetNodeId) {
-      visitedNodeIds.add(event.targetNodeId);
-      pathNodes.push(event.targetNodeId);
+      const outcome = event.outcome ?? 'succeeded';
+      const edgeId = edgeIdBetween(event.sourceNodeId, event.targetNodeId);
       steps.push({
         fromNodeId: event.sourceNodeId,
         toNodeId: event.targetNodeId,
         timestamp: event.timestamp,
         eventId: event.id,
         type: event.type,
+        outcome,
       });
-
-      // Find edge id matching source and target (undirected)
-      const u = event.sourceNodeId;
-      const v = event.targetNodeId;
-      const edgeId = edgeIdBetween(u, v);
-      if (edgeId) traversedEdgeIds.add(edgeId);
-    } else if (
-      event.type !== 'DECOY_DEPLOYED' &&
-      event.actor !== 'system' &&
-      event.targetNodeId
-    ) {
-      visitedNodeIds.add(event.targetNodeId);
+      if (outcome === 'succeeded') {
+        visitedNodeIds.add(event.targetNodeId);
+        pathNodes.push(event.targetNodeId);
+        if (edgeId) traversedEdgeIds.add(edgeId);
+      } else if (outcome === 'attempted' && edgeId) {
+        attemptedEdgeIds.add(edgeId);
+      } else if (outcome === 'blocked' && edgeId) {
+        blockedEdgeIds.add(edgeId);
+      }
     }
   }
 
   return {
     visitedNodeIds,
     traversedEdgeIds,
+    attemptedEdgeIds,
+    blockedEdgeIds,
     steps,
     pathNodes,
   };
@@ -130,7 +134,7 @@ export function deriveNodeStatuses(
     } else if (
       (evt.type === 'SCAN_HOST' ||
         evt.type === 'LOGIN_FAILED' ||
-        evt.type === 'LATERAL_MOVE_ATTEMPT') &&
+        (evt.type === 'LATERAL_MOVE_ATTEMPT' && evt.outcome !== 'blocked')) &&
       statuses[target] !== 'triggered'
     ) {
       statuses[target] = 'suspicious';
@@ -173,21 +177,41 @@ export function deriveDecoyDeployments(session: SimulationSession): DecoyDeploym
   return [...baseline, ...adaptive];
 }
 
+const SCORE_NOTES: Record<ScoreComponent['eventType'], string> = {
+  SESSION_STARTED: 'Session bookkeeping. No points.',
+  SCAN_HOST: 'First scan of a host scores 4. Repeats score 0. Reconnaissance is capped at 12.',
+  BROWSE_DIRECTORY: 'Directory listing is recorded and does not add points.',
+  LOGIN_FAILED: 'First rejection on a host scores 8, the second scores 4, later ones score 0. Authentication is capped at 12.',
+  SENSITIVE_FILE_OPENED: 'Each synthetic file scores 35 once.',
+  HONEYTOKEN_VIEWED: 'Each synthetic credential view scores 40 once.',
+  FAKE_CREDENTIAL_USED: 'Each synthetic credential presentation scores 45 once.',
+  LATERAL_MOVE_ATTEMPT: 'Blocked 2, attempted 6, session move 8. Movement is capped at 24 and does not mark a host compromised.',
+  DECOY_DEPLOYED: 'Staging a decoy is a defender action and scores 0.',
+};
+
 export function deriveScoreBreakdown(session: SimulationSession): ScoreComponent[] {
-  const grouped = new Map<ScoreComponent['eventType'], { count: number; delta: number }>();
+  const grouped = new Map<
+    ScoreComponent['eventType'],
+    { count: number; awarded: number; suppressed: number; nonzero: number[] }
+  >();
   for (const event of session.events) {
-    if (!event.scoreDelta) continue;
-    const current = grouped.get(event.type) || { count: 0, delta: event.scoreDelta };
+    const current = grouped.get(event.type) || { count: 0, awarded: 0, suppressed: 0, nonzero: [] };
     current.count += 1;
-    current.delta = event.scoreDelta;
+    current.awarded += event.scoreDelta || 0;
+    if (!event.scoreDelta) current.suppressed += 1;
+    else current.nonzero.push(event.scoreDelta);
     grouped.set(event.type, current);
   }
-  return Array.from(grouped.entries()).map(([eventType, value]) => ({
-    eventType,
-    count: value.count,
-    deltaEach: value.delta,
-    subtotal: value.count * value.delta,
-  }));
+  return Array.from(grouped.entries())
+    .filter(([, value]) => value.awarded > 0)
+    .map(([eventType, value]) => ({
+      eventType,
+      count: value.count,
+      deltaEach: value.nonzero.every((delta) => delta === value.nonzero[0]) ? value.nonzero[0] : 0,
+      subtotal: value.awarded,
+      suppressed: value.suppressed,
+      note: SCORE_NOTES[eventType],
+    }));
 }
 
 export interface ReportContext {
@@ -239,11 +263,17 @@ export function deriveIncidentReport(
     }
   }
 
+  const decoyTouched = session.events.some(
+    (event) =>
+      event.type === 'SENSITIVE_FILE_OPENED' ||
+      event.type === 'HONEYTOKEN_VIEWED' ||
+      event.type === 'FAKE_CREDENTIAL_USED'
+  );
   let classification = 'Simulated baseline — no decoy interaction';
-  if (score >= 75) {
+  if (score >= 75 && decoyTouched) {
     classification = 'Simulated critical — decoy interaction recorded';
   } else if (score >= 40) {
-    classification = 'Simulated high — suspicious movement or decoy access';
+    classification = 'Simulated high — probing or decoy access recorded';
   } else if (score >= 15) {
     classification = 'Simulated elevated — probing recorded';
   }
@@ -310,7 +340,7 @@ export function deriveIncidentReport(
     durationSeconds,
     threatScore: score,
     classification,
-    summary: `Simulated session '${session.id}' includes ${session.events.length} recorded events across ${path.visitedNodeIds.size} hosts. ${alerts.length} alerts were derived from those events. Threat score ${score}/100. ${SIMULATION_SCOPE_NOTE}`,
+    summary: `Simulated session '${session.id}' includes ${session.events.length} recorded events. The session relocated across ${path.pathNodes.length} hosts. ${alerts.length} alerts were derived from those events. Threat score ${score}/100. Attempted or blocked moves are not counted as a session relocation. ${SIMULATION_SCOPE_NOTE}`,
     currentNode: session.currentNodeId,
     totalEvents: session.events.length,
     alertCounts,

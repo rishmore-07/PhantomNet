@@ -37,8 +37,13 @@ describe('PHANTOMNET Simulation Engine', () => {
       targetNodeId: 'database',
     });
     expect(result.success).toBe(false);
+    expect(result.outcome).toBe('blocked');
     expect(result.updatedSession.currentNodeId).toBe('gateway');
-    expect(result.updatedSession.events.length).toBe(1);
+    expect(result.updatedSession.events).toHaveLength(2);
+    expect(result.updatedSession.events[1].outcome).toBe('blocked');
+    const path = deriveAttackPath(result.updatedSession);
+    expect(path.pathNodes).toEqual(['gateway']);
+    expect(path.traversedEdgeIds.size).toBe(0);
   });
 
   it('permits valid adjacent movement and records event', () => {
@@ -49,14 +54,15 @@ describe('PHANTOMNET Simulation Engine', () => {
       targetNodeId: 'web',
     });
     expect(result.success).toBe(true);
+    expect(result.outcome).toBe('succeeded');
     session = result.updatedSession;
     expect(session.currentNodeId).toBe('web');
     expect(session.events.length).toBe(2);
 
     const alerts = deriveAlerts(session);
     expect(alerts.length).toBe(1);
-    expect(alerts[0].severity).toBe('high');
-    expect(deriveThreatScore(session)).toBe(25);
+    expect(alerts[0].severity).toBe('medium');
+    expect(deriveThreatScore(session)).toBe(8);
   });
 
   it('rejects opening decoy file if attacker is not on the hosting node', () => {
@@ -68,7 +74,7 @@ describe('PHANTOMNET Simulation Engine', () => {
       targetNodeId: 'finance',
     });
     expect(validation.valid).toBe(false);
-    expect(validation.reason).toContain('Move to \'finance\' first');
+    expect(validation.reason).toContain("Relocate the session to 'finance' first");
   });
 
   it('triggers high alert when decoy file is opened on valid node', () => {
@@ -78,10 +84,17 @@ describe('PHANTOMNET Simulation Engine', () => {
       type: 'LATERAL_MOVE_ATTEMPT',
       targetNodeId: 'web',
     }).updatedSession;
-    session = appendSimulationEvent(session, {
+    const attempt = appendSimulationEvent(session, {
+      type: 'LATERAL_MOVE_ATTEMPT',
+      targetNodeId: 'finance',
+    });
+    expect(attempt.outcome).toBe('attempted');
+    expect(attempt.updatedSession.currentNodeId).toBe('web');
+    session = appendSimulationEvent(attempt.updatedSession, {
       type: 'LATERAL_MOVE_ATTEMPT',
       targetNodeId: 'finance',
     }).updatedSession;
+    expect(session.currentNodeId).toBe('finance');
 
     // Open payroll file
     const fileResult = appendSimulationEvent(session, {
@@ -104,10 +117,14 @@ describe('PHANTOMNET Simulation Engine', () => {
 
   it('scores accurately and caps threat score at 100', () => {
     let session = createInitialSession();
-    // +25 (web move) +25 (finance move) +35 (file) +50 (fake creds) = 135 => capped at 100
+    // Move 8 + attempt 6 + move 8 + file 35 + credential 45 = 102, capped at 100.
     session = appendSimulationEvent(session, {
       type: 'LATERAL_MOVE_ATTEMPT',
       targetNodeId: 'web',
+    }).updatedSession;
+    session = appendSimulationEvent(session, {
+      type: 'LATERAL_MOVE_ATTEMPT',
+      targetNodeId: 'finance',
     }).updatedSession;
     session = appendSimulationEvent(session, {
       type: 'LATERAL_MOVE_ATTEMPT',
@@ -139,7 +156,13 @@ describe('PHANTOMNET Simulation Engine', () => {
       type: 'LATERAL_MOVE_ATTEMPT',
       targetNodeId: 'web',
     }).updatedSession;
-    session = appendSimulationEvent(session, {
+    const attempted = appendSimulationEvent(session, {
+      type: 'LATERAL_MOVE_ATTEMPT',
+      targetNodeId: 'finance',
+    }).updatedSession;
+    expect(deriveAttackPath(attempted).pathNodes).toEqual(['gateway', 'web']);
+    expect(deriveAttackPath(attempted).attemptedEdgeIds.has('e-web-fin')).toBe(true);
+    session = appendSimulationEvent(attempted, {
       type: 'LATERAL_MOVE_ATTEMPT',
       targetNodeId: 'finance',
     }).updatedSession;
@@ -150,5 +173,20 @@ describe('PHANTOMNET Simulation Engine', () => {
     expect(path.traversedEdgeIds.has('e-web-fin')).toBe(true);
     expect(path.traversedEdgeIds.has('e-gateway-web')).toBe(false);
     expect(path.traversedEdgeIds.has('e-gateway-finance')).toBe(false);
+  });
+
+  it('does not let repeated scans reach a critical score', () => {
+    let session = createInitialSession();
+    for (let i = 0; i < 25; i += 1) {
+      session = appendSimulationEvent(session, {
+        type: 'SCAN_HOST',
+        targetNodeId: 'gateway',
+      }).updatedSession;
+    }
+    expect(deriveThreatScore(session)).toBe(4);
+    expect(deriveThreatScore(session)).toBeLessThan(75);
+    const report = deriveIncidentReport(session);
+    expect(report.classification).not.toContain('critical');
+    expect(report.scoreBreakdown.find((row) => row.eventType === 'SCAN_HOST')?.suppressed).toBe(24);
   });
 });
